@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gestao-filas"
+version = "0.0.0"
+description = "protótipo de gestão de filas presenciais"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.30,<1",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

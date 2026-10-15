@@ -1,1 +1,1 @@
-"""Protótipo de gestão de filas."""
+"""Sistema de gestão de filas e atendimento presencial."""

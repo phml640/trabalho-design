@@ -1,1 +1,1 @@
-"""Casos de uso do sistema."""
+"""Casos de uso e contratos necessários para executá-los."""

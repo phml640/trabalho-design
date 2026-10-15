@@ -1,0 +1,1 @@
+"""Adaptadores para recursos técnicos e serviços externos. """

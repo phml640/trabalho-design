@@ -90,6 +90,48 @@ Este documento indentifica os componentes, atores e dependências.
 | Atendente | Casos de uso de filas e senhas, por meio da API | Consultar fila e chamar próxima senha. |
 | Atendente | Casos de uso de atendimento, por meio da API | Iniciar e finalizar atendimento. |
 | Totem | API REST | Solicitar emissão de senha. |
+
+---
+
+## 6. Interfaces e mecanismos de comunicação
+
+Os componentes do sistema interagem por meio de interfaces HTTP, chamadas internas entre camadas e integrações com serviços externos.
+
+| Origem | Destino | Interface / mecanismo | Finalidade |
+|---|---|---|---|
+| Cliente web | API REST | HTTP/HTTPS | Emissão e consulta de senhas. |
+| Interface do atendente | API REST | HTTP/HTTPS | Chamada de senhas e gerenciamento de atendimentos. |
+| Totem | API REST | HTTP/HTTPS | Emissão presencial de senhas. |
+| API REST | Casos de uso | Chamadas internas | Executar operações da aplicação. |
+| Casos de uso | Adaptador de persistência | Interfaces/portas internas | Consultar e armazenar informações. |
+| Processador da Outbox | Adaptador de notificação | Interface `Notificador` | Solicitar envio de notificações. |
+| Adaptador de persistência | PostgreSQL | SQL via SQLAlchemy | Executar consultas e transações. |
+| Adaptador de notificação | Provedor externo | SDK/API do provedor | Enviar notificações aos usuários. |
+
+--- 
+
+## 7. Persistência de dados
+
+O sistema utiliza **PostgreSQL** como mecanismo de persistência. O acesso ao banco é realizado pelo adaptador de persistência, implementado com **SQLAlchemy**, enquanto o **Alembic** é responsável pelo versionamento e aplicação das migrações do banco de dados.
+
+São armazenadas informações relacionadas às filas, senhas, atendimentos, histórico de alterações de estado e eventos pendentes de processamento da Outbox.
+
+As operações que exigem consistência são realizadas por meio de transações, utilizando os mecanismos de integridade referencial e bloqueio de concorrência do PostgreSQL. Dessa forma, busca-se garantir a consistência dos dados em operações concorrentes, especialmente na emissão e chamada de senhas.
+
+---
+
+## 8. Decisões de comunicação
+
+As principais decisões relacionadas à comunicação entre os componentes foram definidas considerando o desacoplamento, a interoperabilidade e a consistência das operações.
+
+| Decisão | Justificativa |
+|---|---|
+| Utilizar API REST sobre HTTP/HTTPS | Padronizar a comunicação entre clientes e backend, permitindo integração com diferentes interfaces. |
+| Utilizar chamadas internas entre camadas | Evitar comunicação de rede desnecessária dentro da aplicação. |
+| Utilizar interfaces/portas para persistência e notificações | Desacoplar as regras de negócio das tecnologias externas, permitindo substituir implementações sem modificar os casos de uso. |
+| Utilizar o padrão Outbox para notificações | Registrar eventos na mesma transação das alterações de negócio, permitindo seu processamento posterior e novas tentativas em caso de falha no envio. |
+| Utilizar PostgreSQL com transações | Garantir consistência nas operações envolvendo senhas, filas e atendimentos, inclusive em cenários de concorrência. |
+
 | Administrador | API REST / funcionalidades administrativas | Administrar filas, guichês, atendentes ou configurações, se implementado. |
 | Operador do sistema | Ferramentas operacionais / monitoramento | Acompanhar tentativas, falhas e eventos pendentes, se disponibilizado. |
 | Provedor de notificações | Adaptador de notificação | Receber solicitações de envio e retornar resultado da tentativa. |

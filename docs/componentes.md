@@ -90,7 +90,9 @@ Este documento indentifica os componentes, atores e dependências.
 | Atendente | Casos de uso de filas e senhas, por meio da API | Consultar fila e chamar próxima senha. |
 | Atendente | Casos de uso de atendimento, por meio da API | Iniciar e finalizar atendimento. |
 | Totem | API REST | Solicitar emissão de senha. |
-
+| Administrador | API REST / funcionalidades administrativas | Administrar filas, guichês, atendentes ou configurações, se implementado. |
+| Operador do sistema | Ferramentas operacionais / monitoramento | Acompanhar tentativas, falhas e eventos pendentes, se disponibilizado. |
+| Provedor de notificações | Adaptador de notificação | Receber solicitações de envio e retornar resultado da tentativa. |
 ---
 
 ## 6. Interfaces e mecanismos de comunicação
@@ -132,6 +134,4 @@ As principais decisões relacionadas à comunicação entre os componentes foram
 | Utilizar o padrão Outbox para notificações | Registrar eventos na mesma transação das alterações de negócio, permitindo seu processamento posterior e novas tentativas em caso de falha no envio. |
 | Utilizar PostgreSQL com transações | Garantir consistência nas operações envolvendo senhas, filas e atendimentos, inclusive em cenários de concorrência. |
 
-| Administrador | API REST / funcionalidades administrativas | Administrar filas, guichês, atendentes ou configurações, se implementado. |
-| Operador do sistema | Ferramentas operacionais / monitoramento | Acompanhar tentativas, falhas e eventos pendentes, se disponibilizado. |
-| Provedor de notificações | Adaptador de notificação | Receber solicitações de envio e retornar resultado da tentativa. |
+

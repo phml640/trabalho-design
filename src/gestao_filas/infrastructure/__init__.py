@@ -1,4 +1,3 @@
-"""Adaptadores para recursos técnicos e serviços externos. """
 """Adaptadores de infraestrutura da gestão de filas."""
 
 from .repositories import RepositorioDeFilasEmMemoria

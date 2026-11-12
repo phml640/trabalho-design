@@ -1,13 +1,5 @@
 """Componente responsável pelo ciclo de vida das senhas."""
 
-from .application import GerenciadorDeSenhas
-from .domain import EstadoSenha, Senha, TipoSenha
-from .infrastructure import RepositorioDeSenhasEmMemoria
+from .domain import EstadoSenha, Senha, SenhaChamada, TipoSenha
 
-__all__ = [
-    "EstadoSenha",
-    "GerenciadorDeSenhas",
-    "RepositorioDeSenhasEmMemoria",
-    "Senha",
-    "TipoSenha",
-]
+__all__ = ["EstadoSenha", "Senha", "SenhaChamada", "TipoSenha"]

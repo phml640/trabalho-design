@@ -1,55 +1,52 @@
-"""Casos de uso do componente de gestão de filas."""
+"""Casos de uso das filas, coordenados com as senhas pela mesma transação."""
 
-from __future__ import annotations
-
-from datetime import datetime
-from typing import Protocol
+from datetime import datetime, timezone
 from uuid import UUID
 
-from . import QueueNotFoundError
-from gestao_filas.domain.model import EstadoFila, Fila
-
-
-class RepositorioDeFilas(Protocol):
-    def salvar(self, fila: Fila) -> Fila: ...
-
-    def buscar(self, fila_id: UUID) -> Fila | None: ...
-
-    def listar(self) -> list[Fila]: ...
+from gestao_compartilhada.application import UnidadeDeTrabalho
+from gestao_compartilhada.domain import texto_obrigatorio, validar_instante
+from gestao_compartilhada.operacoes import cancelar_pendentes, garantir_dia, obter_fila
+from gestao_filas.domain.model import EstadoFila, Fila, RegraDeFilaError
 
 
 class GestaoDeFilas:
-    """Coordena criação, consulta e ciclo administrativo das filas."""
+    def __init__(self, unidade_de_trabalho: UnidadeDeTrabalho) -> None:
+        self._uow = unidade_de_trabalho
 
-    def __init__(self, repositorio: RepositorioDeFilas) -> None:
-        self._repositorio = repositorio
-
-    def criar_fila(self, nome: str, descricao: str | None = None) -> Fila:
-        nome = nome.strip()
-        if not nome:
-            raise ValueError("O nome da fila é obrigatório.")
-        if any(f.nome.casefold() == nome.casefold() for f in self._repositorio.listar()):
-            raise ValueError("Já existe uma fila com esse nome.")
-        return self._repositorio.salvar(Fila(nome=nome, descricao=descricao))
+    def criar_fila(
+        self, nome: str, descricao: str | None = None, *, quando: datetime | None = None,
+    ) -> Fila:
+        nome = texto_obrigatorio(nome, "Nome da fila")
+        agora = validar_instante(quando or datetime.now(timezone.utc))
+        with self._uow.transacao() as tx:
+            if any(f.nome.casefold() == nome.casefold() for f in tx.filas.listar()):
+                raise RegraDeFilaError("Já existe uma fila com esse nome.")
+            return tx.filas.salvar(Fila(nome=nome, descricao=descricao, criada_em=agora))
 
     def listar_filas(self, apenas_abertas: bool = False) -> list[Fila]:
-        filas = self._repositorio.listar()
-        if apenas_abertas:
-            return [fila for fila in filas if fila.estado is EstadoFila.ABERTA]
-        return filas
+        with self._uow.transacao() as tx:
+            filas = tx.filas.listar()
+            return [f for f in filas if f.estado is EstadoFila.ABERTA] if apenas_abertas else filas
 
     def obter_fila(self, fila_id: UUID) -> Fila:
-        fila = self._repositorio.buscar(fila_id)
-        if fila is None:
-            raise QueueNotFoundError(f"Fila '{fila_id}' não encontrada.")
-        return fila
+        with self._uow.transacao(UUID(str(fila_id))) as tx:
+            return obter_fila(tx, UUID(str(fila_id)))
 
     def encerrar_fila(self, fila_id: UUID, quando: datetime | None = None) -> Fila:
-        fila = self.obter_fila(fila_id)
-        fila.encerrar(quando)
-        return self._repositorio.salvar(fila)
+        fila_id = UUID(str(fila_id))
+        agora = validar_instante(quando or datetime.now(timezone.utc))
+        with self._uow.transacao(fila_id) as tx:
+            fila = obter_fila(tx, fila_id)
+            garantir_dia(tx, fila, agora)
+            cancelar_pendentes(tx, fila, agora, "encerramento_administrativo")
+            fila.encerrar(agora)
+            return tx.filas.salvar(fila)
 
-    def reabrir_fila(self, fila_id: UUID) -> Fila:
-        fila = self.obter_fila(fila_id)
-        fila.reabrir()
-        return self._repositorio.salvar(fila)
+    def reabrir_fila(self, fila_id: UUID, quando: datetime | None = None) -> Fila:
+        fila_id = UUID(str(fila_id))
+        agora = validar_instante(quando or datetime.now(timezone.utc))
+        with self._uow.transacao(fila_id) as tx:
+            fila = obter_fila(tx, fila_id)
+            garantir_dia(tx, fila, agora)
+            fila.reabrir()
+            return tx.filas.salvar(fila)

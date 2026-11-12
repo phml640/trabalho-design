@@ -2,7 +2,10 @@
 
 from fastapi import FastAPI
 
+from gestao_senhas.api import router as senhas_router
+
 app = FastAPI(title="Gestão de Filas", version="0.1.0")
+app.include_router(senhas_router)
 
 
 @app.get("/health", tags=["Sistema"])

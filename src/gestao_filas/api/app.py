@@ -2,9 +2,11 @@
 
 from fastapi import FastAPI
 
+from gestao_filas.api.routes import router as filas_router
 from gestao_senhas.api import router as senhas_router
 
 app = FastAPI(title="Gestão de Filas", version="0.1.0")
+app.include_router(filas_router)
 app.include_router(senhas_router)
 
 

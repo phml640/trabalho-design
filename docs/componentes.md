@@ -2,7 +2,10 @@
 
 ## 1. Contexto e escopo
 
-Este documento indentifica os componentes, atores e dependências.
+Este documento identifica os componentes, atores e dependências do sistema de gestão de filas e atendimento presencial, incluindo suas responsabilidades, relações arquiteturais e mecanismos de comunicação.
+
+O levantamento contempla os componentes internos, os clientes externos, os serviços dos quais o sistema depende e a integração com a API externa de consulta de horários.
+
 ---
 
 ## 2. Componentes do sistema
@@ -11,7 +14,7 @@ Este documento indentifica os componentes, atores e dependências.
 
 | Componente | Responsabilidade |
 |---|---|
-| API REST | Receber requisições HTTP, validar entradas, autenticar e autorizar quando implementado, traduzir erros e retornar respostas. | `api` |
+| API REST | Receber requisições HTTP, validar entradas, autenticar e autorizar quando implementado, traduzir erros e retornar respostas. |
 | Gerenciador de filas | Coordenar operações e consultas relacionadas às filas. |
 | Gerenciador de senhas | Emitir, consultar, chamar e controlar o estado das senhas. |
 | Gerenciador de atendimentos | Controlar início e finalização de atendimentos e associação com atendente e guichê. |
@@ -22,6 +25,7 @@ Este documento indentifica os componentes, atores e dependências.
 | Processador da Outbox | Ler eventos pendentes, invocar o notificador, controlar tentativas e registrar sucesso ou falha. |
 | Adaptador de persistência | Implementar as portas de persistência usando SQLAlchemy e PostgreSQL. |
 | Adaptador de notificação | Implementar a porta `Notificador`, inicialmente com um notificador simulado. |
+| Adaptador de consulta de horários | Implementar a porta de consulta de horários, realizando requisições à API externa e convertendo suas respostas para o formato utilizado pela aplicação. |
 
 ### 2.2. Componentes externos e clientes
 
@@ -31,7 +35,8 @@ Este documento indentifica os componentes, atores e dependências.
 | Interface do atendente | Consumir a API para chamar senhas e gerenciar atendimentos. | Cliente previsto; tecnologia não definida. |
 | Totem de autoatendimento | Consumir a API para emissão presencial de senhas. | Cliente previsto; tecnologia não definida. |
 | Provedor de notificações | Encaminhar mensagens ao celular do usuário. | Dependência externa substituível; provedor concreto não escolhido. |
-| Serviço de Persistência | Persistir os dados do sistema com transações, integridade referencial e bloqueio de concorrência. | Definido o uso de PostgresSQL |
+| Serviço de persistência | Persistir os dados do sistema com transações, integridade referencial e bloqueio de concorrência. | Definido o uso de PostgreSQL. |
+| API externa de horários | Disponibilizar informações de horários para consulta pelo sistema. | Dependência externa; fornecedor e contrato de integração a definir. |
 
 ---
 
@@ -39,12 +44,11 @@ Este documento indentifica os componentes, atores e dependências.
 
 | Ator | Responsabilidades / interações | Situação |
 |---|---|---|
-| Usuário (cliente) | Solicitar emissão de senha, consultar senha ou fila e receber notificação quando sua senha for chamada. | Decorre dos requisitos descritos nos ADRs. |
-| Atendente | Solicitar chamada da próxima senha, iniciar atendimento e finalizar atendimento. | Decorre dos fluxos descritos nos ADRs. |
-| Administrador | Poderia administrar filas, guichês, atendentes e configurações, caso essas funcionalidades sejam definidas. | Ator possível; atribuições não especificadas nos ADRs. |
+| Usuário (cliente) | Solicitar emissão de senha, consultar senha ou fila e receber notificação quando sua senha for chamada. | Decorre dos requisitos descritos no documento de requisitos. |
+| Atendente | Solicitar chamada da próxima senha, iniciar atendimento e finalizar atendimento. | Decorre dos fluxos descritos no documento de requisitos. |
+| Administrador | Administrar filas, guichês, atendentes e configurações, conforme as funcionalidades administrativas definidas. | Ator previsto nos requisitos. |
 | Operador do sistema | Poderia acompanhar falhas, tentativas e eventos pendentes da Outbox para suporte operacional. | Ator possível; interface e permissões não especificadas. |
-| Totem de autoatendimento | Atuar como cliente da API para solicitar emissão presencial de senhas. | Cliente previsto no contexto do sistema. |
-| Provedor de notificações | Receber solicitações do adaptador e tentar entregar mensagens ao usuário. | Dependência externa prevista, ainda sem fornecedor ou canal definido. |
+| Totem de autoatendimento | Atuar como cliente da API para solicitar emissão presencial de senhas. | Canal de acesso previsto no contexto do sistema. |
 | Interface web ou aplicativo do usuário | Consumir endpoints da API para operações do usuário. | Possível cliente; tecnologia não definida. |
 | Interface do atendente | Consumir endpoints da API para operações do atendente. | Possível cliente; tecnologia não definida. |
 
@@ -58,11 +62,15 @@ Este documento indentifica os componentes, atores e dependências.
 |---|---|---|
 | `api` | `application` | A API chama os casos de uso e traduz requisições e respostas HTTP. |
 | `application` | `domain` | Os casos de uso utilizam entidades, regras e eventos do domínio. |
-| `infrastructure` | Portas definidas em `application` | Os adaptadores implementam contratos de persistência e notificação definidos pela aplicação. |
+| `application` | Porta de consulta de horários | Os casos de uso solicitam informações de horários por meio de um contrato definido pela aplicação. |
+| `infrastructure` | Portas definidas em `application` | Os adaptadores implementam contratos de persistência, notificação e consulta de horários definidos pela aplicação. |
 | `infrastructure` | `domain` | Os adaptadores podem mapear entidades e tratar eventos de domínio, sem transferir detalhes técnicos para o domínio. |
 | Processador da Outbox | Porta `Notificador` | O processador solicita o envio por meio de uma interface substituível. |
 | Adaptador de persistência | PostgreSQL | O adaptador executa consultas e transações no banco. |
 | Adaptador de notificação | Provedor externo | O adaptador integra com o canal de mensagens escolhido. |
+| Adaptador de consulta de horários | API externa de horários | O adaptador realiza requisições HTTP para obter informações disponibilizadas pelo serviço externo. |
+
+A integração com a API de horários segue o princípio de inversão de dependência: a aplicação define a interface de consulta, enquanto a infraestrutura fornece sua implementação concreta.
 
 ### 4.2. Dependências tecnológicas
 
@@ -76,6 +84,7 @@ Este documento indentifica os componentes, atores e dependências.
 | Alembic | Persistência | Aplicar e versionar migrações. |
 | PostgreSQL | Adaptador de persistência | Armazenar os dados do sistema. |
 | Biblioteca / SDK do provedor | Adaptador de notificação | Integrar com o serviço de mensagens, quando escolhido. |
+| Cliente HTTP (ex.: HTTPX) | Adaptador de consulta de horários | Realizar requisições HTTP à API externa, incluindo timeout e tratamento de erros. |
 
 ---
 
@@ -85,14 +94,14 @@ Este documento indentifica os componentes, atores e dependências.
 |---|---|---|
 | Usuário | API REST | Solicitar emissão e consulta de senha. |
 | Usuário | Casos de uso de senhas / filas, por meio da API | Consultar estado e informações da fila. |
-| Usuário | Canal externo de notificação | Receber aviso quando a senha for chamada. |
+| Usuário | Canal externo de notificação | Receber aviso quando sua senha for chamada. |
 | Atendente | API REST | Solicitar chamada e gerenciar atendimentos. |
 | Atendente | Casos de uso de filas e senhas, por meio da API | Consultar fila e chamar próxima senha. |
 | Atendente | Casos de uso de atendimento, por meio da API | Iniciar e finalizar atendimento. |
 | Totem | API REST | Solicitar emissão de senha. |
-| Administrador | API REST / funcionalidades administrativas | Administrar filas, guichês, atendentes ou configurações, se implementado. |
+| Administrador | API REST / funcionalidades administrativas | Administrar filas, guichês, atendentes e configurações. |
 | Operador do sistema | Ferramentas operacionais / monitoramento | Acompanhar tentativas, falhas e eventos pendentes, se disponibilizado. |
-| Provedor de notificações | Adaptador de notificação | Receber solicitações de envio e retornar resultado da tentativa. |
+
 ---
 
 ## 6. Interfaces e mecanismos de comunicação
@@ -106,11 +115,13 @@ Os componentes do sistema interagem por meio de interfaces HTTP, chamadas intern
 | Totem | API REST | HTTP/HTTPS | Emissão presencial de senhas. |
 | API REST | Casos de uso | Chamadas internas | Executar operações da aplicação. |
 | Casos de uso | Adaptador de persistência | Interfaces/portas internas | Consultar e armazenar informações. |
+| Casos de uso | Adaptador de consulta de horários | Interface/porta interna | Solicitar informações de horários. |
 | Processador da Outbox | Adaptador de notificação | Interface `Notificador` | Solicitar envio de notificações. |
 | Adaptador de persistência | PostgreSQL | SQL via SQLAlchemy | Executar consultas e transações. |
 | Adaptador de notificação | Provedor externo | SDK/API do provedor | Enviar notificações aos usuários. |
+| Adaptador de consulta de horários | API externa de horários | HTTP/HTTPS | Consultar informações de horários disponibilizadas pelo serviço externo. |
 
---- 
+---
 
 ## 7. Persistência de dados
 
@@ -119,6 +130,8 @@ O sistema utiliza **PostgreSQL** como mecanismo de persistência. O acesso ao ba
 São armazenadas informações relacionadas às filas, senhas, atendimentos, histórico de alterações de estado e eventos pendentes de processamento da Outbox.
 
 As operações que exigem consistência são realizadas por meio de transações, utilizando os mecanismos de integridade referencial e bloqueio de concorrência do PostgreSQL. Dessa forma, busca-se garantir a consistência dos dados em operações concorrentes, especialmente na emissão e chamada de senhas.
+
+A API externa de horários é consultada por meio do adaptador de integração. Não foi estabelecida, neste levantamento, a necessidade de persistir localmente as informações retornadas pelo serviço externo. Essa possibilidade depende dos requisitos de atualização, disponibilidade e utilização dos horários.
 
 ---
 
@@ -130,8 +143,10 @@ As principais decisões relacionadas à comunicação entre os componentes foram
 |---|---|
 | Utilizar API REST sobre HTTP/HTTPS | Padronizar a comunicação entre clientes e backend, permitindo integração com diferentes interfaces. |
 | Utilizar chamadas internas entre camadas | Evitar comunicação de rede desnecessária dentro da aplicação. |
-| Utilizar interfaces/portas para persistência e notificações | Desacoplar as regras de negócio das tecnologias externas, permitindo substituir implementações sem modificar os casos de uso. |
+| Utilizar interfaces/portas para persistência, notificações e consulta de horários | Desacoplar as regras de negócio das tecnologias externas, permitindo substituir implementações sem modificar os casos de uso. |
 | Utilizar o padrão Outbox para notificações | Registrar eventos na mesma transação das alterações de negócio, permitindo seu processamento posterior e novas tentativas em caso de falha no envio. |
 | Utilizar PostgreSQL com transações | Garantir consistência nas operações envolvendo senhas, filas e atendimentos, inclusive em cenários de concorrência. |
+| Utilizar HTTP/HTTPS para integração com a API externa de horários | Padronizar a comunicação com o serviço externo e permitir sua substituição sem alterações nas regras de negócio. |
+| Definir timeout e tratamento de falhas na consulta de horários | Evitar que indisponibilidades ou respostas lentas do serviço externo comprometam indefinidamente as operações do sistema. |
 
-
+---

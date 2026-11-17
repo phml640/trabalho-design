@@ -6,3 +6,9 @@ __pycache__/
 build/
 dist/
 .env
+node_modules/
+.env.local
+.env.*.local
+playwright-report/
+test-results/
+*.tsbuildinfo

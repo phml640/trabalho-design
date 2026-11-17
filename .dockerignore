@@ -7,3 +7,10 @@ __pycache__
 .pytest_cache
 build
 dist
+**/node_modules
+frontend/dist
+frontend/test-results
+frontend/playwright-report
+**/.env
+**/.env.local
+**/.env.*.local

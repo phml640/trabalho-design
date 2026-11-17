@@ -8,6 +8,7 @@ from threading import Barrier
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
+from urllib.parse import urlsplit
 
 from gestao_compartilhada.domain import ErroDeRegraDeNegocio, QueueNotFoundError
 from gestao_compartilhada.infrastructure import TransacaoEmMemoria, UnidadeDeTrabalhoEmMemoria
@@ -288,6 +289,7 @@ class IntegracaoTest(unittest.TestCase):
 
 async def requisitar(app, metodo, caminho, dados=None):
     """Executa o contrato ASGI real sem adicionar dependências de cliente HTTP."""
+    url = urlsplit(caminho)
     corpo = json.dumps(dados).encode() if dados is not None else b""
     mensagens = []
     enviada = False
@@ -304,8 +306,8 @@ async def requisitar(app, metodo, caminho, dados=None):
 
     escopo = {
         "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
-        "method": metodo, "scheme": "http", "path": caminho,
-        "raw_path": caminho.encode(), "query_string": b"",
+        "method": metodo, "scheme": "http", "path": url.path,
+        "raw_path": url.path.encode(), "query_string": url.query.encode(),
         "root_path": "", "headers": [(b"content-type", b"application/json")],
         "client": ("127.0.0.1", 1234), "server": ("test", 80),
     }

@@ -74,6 +74,22 @@ class GerenciadorDeSenhas:
     def iniciar_atendimento(self, senha_id: str, quando: datetime | None = None) -> Senha:
         return self._transicionar_atendimento(senha_id, quando, iniciar=True)
 
+    def consultar_senha(self, senha_id: str, quando: datetime | None = None) -> Senha:
+        senha_uuid = UUID(str(senha_id))
+        agora = validar_instante(quando or datetime.now(timezone.utc))
+        fila_id = self._identificar_fila(senha_uuid)
+        with self._uow.transacao(fila_id) as tx:
+            fila = obter_fila(tx, fila_id)
+            garantir_dia(tx, fila, agora)
+            return tx.senhas.buscar(senha_uuid)
+
+    def _identificar_fila(self, senha_id: UUID) -> UUID:
+        with self._uow.transacao() as tx:
+            senha = tx.senhas.buscar(senha_id)
+            if senha is None:
+                raise LookupError(f"Senha '{senha_id}' não encontrada.")
+            return UUID(senha.fila_id)
+
     def finalizar_atendimento(self, senha_id: str, quando: datetime | None = None) -> Senha:
         return self._transicionar_atendimento(senha_id, quando, iniciar=False)
 
@@ -83,11 +99,7 @@ class GerenciadorDeSenhas:
         senha_uuid = UUID(str(senha_id))
         agora = validar_instante(quando or datetime.now(timezone.utc))
         # A associação à fila é imutável. A senha é relida sob o bloqueio da fila.
-        with self._uow.transacao() as tx:
-            senha = tx.senhas.buscar(senha_uuid)
-            if senha is None:
-                raise LookupError(f"Senha '{senha_id}' não encontrada.")
-            fila_id = UUID(senha.fila_id)
+        fila_id = self._identificar_fila(senha_uuid)
         with self._uow.transacao(fila_id) as tx:
             fila = obter_fila(tx, fila_id)
             senha = tx.senhas.buscar(senha_uuid)

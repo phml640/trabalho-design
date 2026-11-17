@@ -2,6 +2,8 @@
 
 Trabalho da disciplina de Design de Software. Backend Python/FastAPI organizado
 nos módulos `gestao_filas`, `gestao_senhas` e `gestao_compartilhada`.
+O frontend React/Vite/TypeScript está em [`frontend/`](frontend/), com as visões
+`/usuario` e `/admin` e o fluxo completo de atendimento integrado à API.
 
 ## Executar com Docker e PostgreSQL
 
@@ -32,6 +34,46 @@ O volume `postgres_data` mantém os dados após reinícios da API, do banco e ap
 `docker compose down`. `docker compose down -v` apaga esse volume e os dados.
 As portas são publicadas apenas em `127.0.0.1`. `API_PORT` e `POSTGRES_PORT` em
 `.env` permitem alterar as portas locais.
+
+## Executar o frontend
+
+Com a API e o PostgreSQL iniciados, abra outro terminal. Requer Node.js 24 LTS
+(ou 22.12+ na linha 22) e npm:
+
+```bash
+cd frontend
+npm ci
+cp .env.example .env
+npm run dev
+```
+
+Abra <http://localhost:5173>. A página inicial permite escolher a visão. Para
+demonstrar em duas janelas, abra `/usuario` em uma e `/admin` na outra. O proxy do
+Vite encaminha `/api` ao backend em `http://127.0.0.1:8000`; ajuste
+`VITE_API_PROXY_TARGET` em `frontend/.env` se a API usar outra porta. Não é
+necessário alterar CORS no backend para usar esse proxy.
+
+O administrador cria a fila e informa atendente e guichê. O usuário seleciona
+essa fila e emite uma senha. O administrador chama, inicia e finaliza o atendimento;
+a janela do usuário acompanha as mudanças automaticamente a cada três segundos.
+Histórico e notificações simuladas podem ser consultados no painel. No celular,
+a senha emitida é trazida para a área visível automaticamente.
+
+O navegador conserva somente o identificador da senha no `localStorage`. Número,
+estado, fila e histórico são consultados na API; PostgreSQL continua sendo a
+fonte oficial. Não há login ou controle de acesso entre as visões, e a prioridade
+continua demonstrativa, sem validação de elegibilidade.
+
+Para verificar o build ou visualizar a versão compilada:
+
+```bash
+npm run build
+npm run preview
+```
+
+O preview fica em <http://localhost:4173> e também usa o proxy local. Instruções de
+configuração, testes de navegador e roteiro de demonstração estão no
+[README do frontend](frontend/README.md).
 
 ## Executar sem Docker
 
@@ -268,7 +310,7 @@ persistência das mensagens simuladas e dos atendimentos após reiniciar a API.
 ## Limites desta etapa
 
 O envio é simulado e o processamento é manual, sem agendamento ou política de
-backoff. Autenticação e frontend ficam fora deste escopo. A consulta da fila ativa
+backoff. Autenticação permanece fora deste escopo. A consulta da fila ativa
 ainda carrega as senhas da fila; a meta de carga do ASR02 não foi medida.
 O Compose inicial usa uma instância da API e executa as migrações na inicialização.
 

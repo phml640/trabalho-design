@@ -39,10 +39,11 @@ test('página inicial permite escolher as duas visões', async ({ page }) => {
 test('duas janelas concluem atendimento, histórico e notificações sem Swagger', async ({
   browser,
   page: admin,
+  baseURL,
 }, testInfo) => {
   const userContext = await browser.newContext({
     locale: 'pt-BR',
-    baseURL: 'http://127.0.0.1:5173',
+    baseURL,
   });
   const user = await userContext.newPage();
   try {
@@ -106,7 +107,12 @@ test('duas janelas concluem atendimento, histórico e notificações sem Swagger
   }
 });
 
-test('senha prioritária segue a seleção do backend', async ({ page, request, browser }) => {
+test('senha prioritária segue a seleção do backend', async ({
+  page,
+  request,
+  browser,
+  baseURL,
+}) => {
   const fila = await createQueue(request);
   const normalResponse = await request.post(`/api/filas/${fila.id}/senhas`, {
     data: { usuario_id: crypto.randomUUID(), tipo: 'normal' },
@@ -122,9 +128,9 @@ test('senha prioritária segue a seleção do backend', async ({ page, request, 
   await page.getByRole('button', { name: 'Emitir minha senha' }).click();
   const prioritaria = await (await response).json();
   expect(prioritaria.tipo).toBe('prioritaria');
-  const admin = await browser.newPage();
+  const admin = await browser.newPage({ baseURL });
   try {
-    await admin.goto('http://127.0.0.1:5173/admin');
+    await admin.goto('/admin');
     await selectQueue(admin, fila.nome);
     await configureCounter(admin);
     await admin.getByRole('button', { name: 'Chamar próxima senha' }).click();
@@ -141,11 +147,12 @@ test('encerramento cancela a senha no celular e a reabertura permite nova emiss�
   page: admin,
   browser,
   request,
+  baseURL,
 }, testInfo) => {
   const fila = await createQueue(request);
-  const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const mobile = await browser.newPage({ baseURL, viewport: { width: 390, height: 844 } });
   try {
-    await mobile.goto('http://127.0.0.1:5173/usuario');
+    await mobile.goto('/usuario');
     await selectQueue(mobile, fila.nome);
     const emitted = mobile.waitForResponse(
       (r) => r.url().endsWith('/senhas') && r.request().method() === 'POST',

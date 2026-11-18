@@ -1,0 +1,43 @@
+{
+  "data_utc": "2026-11-18T00:41:20.216036+00:00",
+  "ambiente": "Execucao nativa temporaria, sem Docker; Debian 13; PostgreSQL 17.12 local; Uvicorn com um processo; cliente e servidor na mesma maquina; frontend e testes funcionais sem carga durante as rajadas.",
+  "sistema": "Linux-6.12.111+deb13-amd64-x86_64-with-glibc2.41",
+  "python": "3.13.5",
+  "fastapi": "0.143.0",
+  "sqlalchemy": "2.0.58",
+  "cpus_visiveis": 8,
+  "fila_id": "52892500-0c1a-483c-a9ce-6efdeaf59c5c",
+  "clientes_concorrentes": 50,
+  "senhas_iniciais_na_fila": 10000,
+  "senhas_totais_no_banco_antes_das_rajadas": 10000,
+  "cenario": "Uma fila, todas as senhas inicialmente aguardando, 50% prioritárias. Uma rajada por operação, nesta ordem: emissão, consulta, chamada. Uma consulta de aquecimento. Um cliente Python com threads; duração inclui HTTP, transferência e leitura do JSON. Sem processamento de notificações.",
+  "meta_p95_ms": 500,
+  "resultados": {
+    "emissao": {
+      "requisicoes": 50,
+      "erros": 0,
+      "p50_ms": 191.64,
+      "p95_ms": 298.61,
+      "max_ms": 308.28,
+      "detalhes_erros": []
+    },
+    "consulta_fila_ativa": {
+      "requisicoes": 50,
+      "erros": 0,
+      "p50_ms": 7680.16,
+      "p95_ms": 14683.49,
+      "max_ms": 15870.22,
+      "detalhes_erros": []
+    },
+    "chamada": {
+      "requisicoes": 50,
+      "erros": 0,
+      "p50_ms": 6723.44,
+      "p95_ms": 12494.94,
+      "max_ms": 13440.71,
+      "detalhes_erros": []
+    }
+  },
+  "todas_rajadas_abaixo_da_meta": false,
+  "limites": "Amostra pequena e exploratória, sem teste sustentado ou repetição estatística. Não certifica o ASR02 nem substitui validação no hardware da apresentação."
+}

@@ -1,187 +1,125 @@
-# Levantamento de componentes, atores e dependências — Sistema de Gestão de Filas
+# Componentes e arquitetura implementada
 
-## 1. Contexto e escopo
+Este documento descreve o protótipo executável. Os ADRs registram decisões e
+intenções; a situação abaixo distingue o que existe no código do que foi apenas
+planejado. Diagramas UML são mantidos separadamente pelo integrante responsável.
 
-Este documento identifica os componentes, atores e dependências do sistema de gestão de filas e atendimento presencial, incluindo suas responsabilidades, relações arquiteturais e mecanismos de comunicação.
+## Componentes implementados
 
-O levantamento contempla os componentes internos, os clientes externos, os serviços dos quais o sistema depende e a integração com a API externa de consulta de horários.
+| Componente | Implementação e responsabilidade |
+| --- | --- |
+| Frontend React/Vite/TypeScript | `frontend/src`: visões `/usuario` e `/admin`, acompanhamento periódico, histórico e notificações. Não calcula a ordem de chamada. |
+| Servidor web Nginx | `frontend/nginx.conf`: serve o build, suporta acesso direto às rotas React e encaminha `/api/` para a API. |
+| API REST FastAPI | `gestao_filas.api`, `gestao_senhas.api` e `gestao_compartilhada.api`: validação, respostas tipadas, OpenAPI e tradução de erros para HTTP. Sem autenticação/autorização. |
+| Gestão de filas | `GestaoDeFilas`: criação, consulta, encerramento e reabertura. Coordena cancelamentos pela unidade de trabalho. |
+| Gestão de senhas e atendimentos | `GerenciadorDeSenhas`: emissão, consulta, chamada, início e finalização. Atendimento é parte da senha; não existe um serviço implantado separadamente para ele. |
+| Domínio | `Fila`, `Senha`, `selecionar_proxima` e `SenhaChamada`: estados, transições e política de duas prioritárias consecutivas/FIFO. Não dependem de HTTP, ORM ou provedor. |
+| Virada diária | `gestao_compartilhada.operacoes.garantir_dia`: execução idempotente na operação pertinente. Não existe cron ou agendador. |
+| Histórico e consultas | `TransicaoSenha`, `Consultas` e repositórios: registro atômico de transições e consultas paginadas por fila/senha/estado. |
+| Porta transacional | `UnidadeDeTrabalho` e protocolos de repositórios em `gestao_compartilhada.application`: delimitam as operações de persistência necessárias aos casos de uso. |
+| Persistência PostgreSQL | `gestao_compartilhada.postgres`: modelos e repositórios SQLAlchemy, Session por transação, bloqueio da fila e migrações Alembic. |
+| Adaptador em memória | `UnidadeDeTrabalhoEmMemoria`: snapshots, rollback e bloqueio global em um processo; utilizado nas regressões rápidas. Não oferece persistência entre reinícios. |
+| Processador da Outbox | `ProcessadorOutbox`: reserva um evento em transação curta, envia sem transação aberta e registra sucesso/falha em outra transação. Execução manual pela API/interface. |
+| Porta de notificação | `Notificador.notificar(evento)`: contrato substituível, com id estável como chave de idempotência. |
+| Notificador simulado | `FakeNotificador`: persiste uma mensagem única por evento, sem celular, SMS, WhatsApp ou contato real. Permite simular falha e inspecionar tentativas. |
 
----
+PostgreSQL, API e frontend têm containers próprios por necessidade de execução.
+As responsabilidades de negócio estão em **um único backend**, com chamadas
+internas e transação local compartilhada. A separação dos containers de banco e
+servidor web não torna a solução um conjunto de microsserviços.
 
-## 2. Componentes do sistema
+## Atores e funcionalidades fora do escopo
 
-### 2.1. Componentes arquiteturais internos
+| Elemento | Situação real |
+| --- | --- |
+| Usuário | Emite e acompanha uma senha pela visão de usuário, sem cadastro ou login. |
+| Atendente/administrador | Cria, encerra/reabre filas, chama e atende senhas e consulta registros na mesma visão administrativa. |
+| Guichês e atendentes | Identificadores informados na chamada; não possuem cadastro ou gestão de usuários. |
+| Operador | Pode inspecionar eventos, mensagens e tentativas no painel; não existe papel/permissão separado. |
+| Totem físico | Não implementado. A API aceita o canal `totem`, mas não há aplicação ou equipamento específico para esse canal. |
+| Provedor real de notificações | Não integrado. Há apenas a porta e sua implementação simulada. |
+| API externa de horários | **Fora do escopo do protótipo. Não existem porta, adaptador, endpoint ou requisição a essa API.** Referências anteriores eram uma intenção, não uma dependência implementada. |
+| Autenticação, autorização e elegibilidade prioritária | Não implementadas. A escolha de visão não é uma fronteira de segurança; a prioridade é demonstrativa. |
 
-| Componente | Responsabilidade | Interface de comunicação |
-|---|---|---|
-| API REST | Receber requisições HTTP, validar entradas, autenticar e autorizar quando implementado, traduzir erros e retornar respostas. | Endpoints HTTP/REST e chamadas aos casos de uso. |
-| Gerenciador de filas | Coordenar operações e consultas relacionadas às filas. | Interfaces internas da aplicação. |
-| Gerenciador de senhas | Emitir, consultar, chamar e controlar o estado das senhas. | Interfaces internas da aplicação e interfaces de persistência. |
-| Gerenciador de atendimentos | Controlar início e finalização de atendimentos e associação com atendente e guichê. | Interfaces internas da aplicação e interfaces de persistência. |
-| Gerenciador de histórico | Registrar transições de estado de senhas e atendimentos. | Interface de registro de histórico e interfaces de persistência. |
-| Gerenciador de virada diária | Garantir a mudança do dia operacional, tratar senhas antigas e reiniciar o contador pertinente. | Interface de execução da virada diária e interfaces de persistência. |
-| Processador da Outbox | Ler eventos pendentes, solicitar notificações, controlar tentativas e registrar sucesso ou falha. | Interface de acesso à Outbox e interface `Notificador`. |
-| Adaptador de persistência | Implementar as portas de persistência utilizando SQLAlchemy e PostgreSQL. | Interfaces de repositórios e comunicação SQL com PostgreSQL. |
-| Adaptador de notificação | Implementar a porta `Notificador`, inicialmente com um notificador simulado. | Interface `Notificador` e integração com o provedor externo. |
-| Adaptador de consulta de horários | Implementar a porta de consulta de horários, realizando requisições à API externa e convertendo suas respostas para o formato utilizado pela aplicação. | Interface de consulta de horários e HTTP/HTTPS. |
+## Coesão, acoplamento e características hexagonais
 
-Os componentes representam unidades modulares que encapsulam responsabilidades e colaboram por meio de interfaces. As interfaces internas podem corresponder a contratos de programação entre módulos, não exigindo necessariamente comunicação por rede.
+`gestao_filas` concentra o estado e a coordenação das filas. `gestao_senhas`
+concentra a política e o ciclo da senha/atendimento. `gestao_compartilhada`
+coordena transações, virada, histórico e notificações. Filas e senhas têm
+acoplamento deliberado através do contrato transacional: seleção, contador,
+estado, histórico e evento precisam confirmar ou reverter juntos.
 
-Regras de negócio e eventos de domínio, como `SenhaChamada`, são elementos internos da aplicação e não são considerados componentes independentes neste levantamento.
+O backend é um **monólito modular com características de Arquitetura Hexagonal**:
+API e infraestrutura ficam na borda; casos de uso coordenam o domínio por portas;
+a composição escolhe os adaptadores em `criar_app()` e `configuracao.py`.
+Modelos ORM não atravessam as portas: o adaptador faz o mapeamento para objetos de
+domínio. FastAPI/Pydantic permanecem na entrada HTTP. O frontend é outro cliente
+dessa entrada e não acessa diretamente o banco.
 
-### 2.2. Componentes externos e clientes
+Essa direção de dependências reduz o acoplamento às tecnologias. As pastas não
+impõem isolamento: os limites dependem dos contratos e da revisão do código. O
+módulo compartilhado é um ponto de coordenação, portanto exige cuidado para não
+virar um depósito de responsabilidades sem relação.
 
-| Componente | Responsabilidade | Situação nos ADRs |
-|---|---|---|
-| Interface do usuário / cliente | Consumir a API para emitir e consultar senhas e acompanhar informações da fila. | Cliente previsto; tecnologia não definida. |
-| Interface do atendente | Consumir a API para chamar senhas e gerenciar atendimentos. | Cliente previsto; tecnologia não definida. |
-| Totem de autoatendimento | Consumir a API para emissão presencial de senhas. | Cliente previsto; tecnologia não definida. |
-| Provedor de notificações | Encaminhar mensagens ao celular do usuário quando sua senha for chamada. | Dependência externa substituível; provedor concreto não escolhido. |
-| PostgreSQL | Persistir os dados do sistema com transações, integridade referencial e mecanismos de controle de concorrência. | Tecnologia definida. |
-| API externa de horários | Disponibilizar informações de horários para consulta pelo sistema. | Dependência externa; fornecedor e contrato de integração a definir. |
+## Responsabilidades e princípios GRASP/SOLID
 
----
+| Princípio | Aplicação concreta |
+| --- | --- |
+| GRASP Controller | `GestaoDeFilas`, `GerenciadorDeSenhas`, `Consultas` e `ProcessadorOutbox` coordenam casos de uso; rotas traduzem HTTP. |
+| GRASP Information Expert | `Senha` valida suas transições e horários; `Fila` controla seu estado e contador. A função pura `selecionar_proxima` aplica a política. |
+| GRASP Creator | O gerenciador cria a senha a partir do número fornecido pelo repositório e das informações da fila. |
+| GRASP High Cohesion / Low Coupling | Responsabilidades são agrupadas pelos módulos; as integrações usam portas, sem SQL nos casos de uso. |
+| GRASP Indirection / Protected Variations | Unidade de trabalho, repositórios e `Notificador` isolam variações de persistência e envio. |
+| SOLID SRP | Entidades tratam regras, casos de uso tratam coordenação, repositórios tratam acesso ao banco e a API trata o contrato HTTP. |
+| SOLID DIP | Casos de uso dependem de protocolos, e os adaptadores implementam esses contratos. |
+| SOLID OCP | Outro notificador pode ser injetado sem alterar seleção de senhas ou processamento da chamada. |
+| SOLID ISP | Portas de filas, senhas, histórico, Outbox e notificações são separadas por responsabilidade; a transação as reúne no contexto de consistência. |
+| SOLID LSP, no escopo dos contratos | Memória e PostgreSQL são exercitados com regressões comuns. Isso verifica comportamento nas operações válidas, sem afirmar equivalência de desempenho ou persistência dos dois adaptadores. |
 
-## 3. Atores do sistema
+## Transações, histórico e notificação
 
-| Ator | Responsabilidades / interações | Situação |
-|---|---|---|
-| Usuário (cliente) | Solicitar emissão de senha, consultar senha ou fila e receber notificação quando sua senha for chamada. | Decorre dos requisitos descritos no documento de requisitos. |
-| Atendente | Solicitar chamada da próxima senha, iniciar atendimento e finalizar atendimento. | Decorre dos fluxos descritos no documento de requisitos. |
-| Administrador | Administrar filas, guichês, atendentes e configurações, conforme as funcionalidades administrativas definidas. | Ator previsto nos requisitos. |
-| Operador do sistema | Acompanhar falhas, tentativas e eventos pendentes da Outbox para suporte operacional. | Ator possível; interface e permissões não especificadas. |
+A transação de emissão/chamada bloqueia a linha da fila com `SELECT FOR UPDATE`.
+O isolamento `READ COMMITTED` permite que a operação seguinte veja o commit da
+anterior. A numeração por fila/dia/classe também é transacional, sem consumir
+números em rollback. Operações globais usam advisory lock para proteger a criação
+de nomes comparados com `casefold()`.
 
-O totem de autoatendimento e as interfaces web ou de atendente são considerados canais ou clientes externos de acesso ao sistema, não atores humanos.
+`senhas` armazena também atendente, guichê e horários do atendimento, preservando
+o modelo existente. `historico_transicoes` conserva as transições; virada e
+encerramento não apagam registros. `outbox`, `tentativas_notificacao` e
+`notificacoes_simuladas` preservam a intenção, as tentativas e o efeito simulado.
 
----
+A chamada confirma antes do envio. Falha do notificador não altera o atendimento.
+Reservas de processamento expiram em 30 segundos e podem ser retomadas. O id do
+evento é estável; o Fake evita mensagens duplicadas por esse id. Um provedor real
+precisaria respeitar essa chave para evitar duplicações após perda de confirmação.
+O projeto não promete entrega exatamente uma vez e não usa event sourcing.
 
-## 4. Dependências do sistema
+## Trade-offs e evolução
 
-### 4.1. Dependências arquiteturais e direção do código
+- Uma transação local e um backend simplificam a demonstração, o diagnóstico e a
+  consistência. A contrapartida é compartilhar implantação e recursos entre módulos.
+- O bloqueio por fila é simples e evita seleção duplicada, mas serializa operações
+  concorrentes dessa fila. Filas diferentes têm bloqueios independentes.
+- A seleção continua no domínio e o adaptador carrega as senhas da fila. Isso
+  preserva o contrato existente, mas tem custo crescente de consulta e materialização.
+  Histórico e notificações são paginados; a fila ativa ainda retorna um array.
+- A Outbox evita perder a intenção de notificar entre commit e envio. Acrescenta
+  registros, reservas e retentativas; o processamento manual é suficiente para o
+  protótipo, mas não substitui uma política operacional de entrega.
+- Vários arquivos de adaptação e mapeamento aumentam o código em relação a endpoints
+  com SQL direto; em troca, o domínio permanece testável sem HTTP e banco.
 
-| Origem | Destino / contrato utilizado | Explicação |
-|---|---|---|
-| `api` | `application` | A API chama os casos de uso e traduz requisições e respostas HTTP. |
-| `application` | `domain` | Os casos de uso utilizam entidades, regras e eventos do domínio. |
-| `application` | Portas de persistência | Os casos de uso utilizam contratos para consultar e armazenar informações. |
-| `application` | Porta de notificação | Os componentes responsáveis pelo processamento de notificações utilizam um contrato para solicitar seu envio. |
-| `application` | Porta de consulta de horários | Os casos de uso solicitam informações de horários por meio de um contrato definido pela aplicação. |
-| `infrastructure` | Portas definidas em `application` | Os adaptadores implementam contratos de persistência, notificação e consulta de horários definidos pela aplicação. |
-| `infrastructure` | `domain` | Os adaptadores podem mapear entidades e tratar eventos de domínio, sem transferir detalhes técnicos para o domínio. |
-| Processador da Outbox | Porta de acesso à Outbox | O processador consulta eventos pendentes e atualiza seus estados de processamento. |
-| Processador da Outbox | Porta `Notificador` | O processador solicita o envio de notificações por meio de uma interface substituível. |
-| Adaptador de persistência | PostgreSQL | O adaptador executa consultas e transações no banco. |
-| Adaptador de notificação | Provedor externo | O adaptador integra com o canal de mensagens escolhido. |
-| Adaptador de consulta de horários | API externa de horários | O adaptador realiza requisições HTTP para obter informações disponibilizadas pelo serviço externo. |
+**Troca do banco:** implementar os protocolos de repositório e `UnidadeDeTrabalho`,
+mapear entidades, criar migrações e substituir a composição. É preciso revalidar
+atomicidade, unicidade, numeração e sincronização entre processos. Bloqueios de
+linha, advisory locks e upserts são detalhes PostgreSQL que não podem simplesmente
+ser copiados para qualquer banco. Regras de prioridade e casos de uso devem permanecer.
 
-A integração com a API de horários e o mecanismo de persistência seguem o princípio de inversão de dependência: a aplicação define as interfaces, enquanto a infraestrutura fornece suas implementações concretas.
+**Troca do notificador:** implementar `Notificador`, injetar o novo adaptador e
+manter o evento/id de idempotência. A chamada e a política permanecem. Um serviço
+real exigiria definir contato, consentimento, timeout e política de retentativas;
+esses requisitos não estão resolvidos pelo Fake.
 
-O mesmo princípio é aplicado às notificações, permitindo substituir o provedor de mensagens sem modificar a lógica de processamento da Outbox.
-
-### 4.2. Dependências tecnológicas
-
-| Dependência | Consumidor / componente | Finalidade |
-|---|---|---|
-| Python 3.11+ | Backend | Execução do código da aplicação. |
-| FastAPI | API REST | Roteamento HTTP, validação e documentação OpenAPI. |
-| Uvicorn | Aplicação ASGI | Servir a API HTTP. |
-| setuptools | Projeto | Build e empacotamento. |
-| SQLAlchemy | Adaptador de persistência | Mapeamento e acesso transacional ao banco. |
-| Alembic | Persistência | Aplicar e versionar migrações. |
-| PostgreSQL | Adaptador de persistência | Armazenar os dados do sistema. |
-| Biblioteca / SDK do provedor | Adaptador de notificação | Integrar com o serviço de mensagens, quando escolhido. |
-| Cliente HTTP (ex.: HTTPX) | Adaptador de consulta de horários | Realizar requisições HTTP à API externa, incluindo timeout e tratamento de erros. |
-
----
-
-## 5. Relacionamento entre atores e componentes
-
-| Ator | Componente / interface acessada | Operações |
-|---|---|---|
-| Usuário | API REST | Solicitar emissão e consulta de senha. |
-| Usuário | Canal externo de notificação | Receber aviso quando sua senha for chamada. |
-| Atendente | API REST | Consultar filas, solicitar chamada de senhas e gerenciar atendimentos. |
-| Administrador | API REST / funcionalidades administrativas | Administrar filas, guichês, atendentes e configurações. |
-| Operador do sistema | Ferramentas operacionais / monitoramento | Acompanhar tentativas, falhas e eventos pendentes, se disponibilizado. |
-
-O usuário e o atendente interagem com as funcionalidades do sistema por meio da API REST. As operações são encaminhadas aos respectivos casos de uso, que colaboram com os demais componentes por meio de suas interfaces.
-
-O recebimento de notificações pelo usuário ocorre por meio do canal externo disponibilizado pelo provedor de notificações.
-
-O totem de autoatendimento e as interfaces web e do atendente atuam como clientes da API REST.
-
----
-
-## 6. Interfaces e mecanismos de comunicação
-
-Os componentes do sistema interagem por meio de interfaces HTTP, chamadas internas entre módulos e integrações com serviços externos.
-
-| Origem | Destino | Interface / mecanismo | Finalidade |
-|---|---|---|---|
-| Cliente web | API REST | HTTP/HTTPS | Emissão e consulta de senhas. |
-| Interface do atendente | API REST | HTTP/HTTPS | Chamada de senhas e gerenciamento de atendimentos. |
-| Totem | API REST | HTTP/HTTPS | Emissão presencial de senhas. |
-| API REST | Casos de uso | Chamadas internas | Executar operações da aplicação. |
-| Casos de uso | Interfaces de persistência | Portas internas | Consultar e armazenar informações. |
-| Casos de uso | Interface de consulta de horários | Porta interna | Solicitar informações de horários. |
-| Processador da Outbox | Interface de acesso à Outbox | Porta interna | Consultar eventos pendentes e atualizar seu processamento. |
-| Processador da Outbox | Interface `Notificador` | Porta interna | Solicitar envio de notificações. |
-| Adaptador de persistência | PostgreSQL | SQL via SQLAlchemy | Executar consultas e transações. |
-| Adaptador de notificação | Provedor externo | SDK/API do provedor | Enviar notificações aos usuários. |
-| Adaptador de consulta de horários | API externa de horários | HTTP/HTTPS | Consultar informações de horários disponibilizadas pelo serviço externo. |
-
-As interfaces internas são representadas por contratos de programação, como interfaces de repositórios e portas de serviços. Elas permitem que os componentes colaborem sem depender diretamente dos detalhes de implementação uns dos outros.
-
----
-
-## 7. Persistência de dados
-
-O sistema utiliza **PostgreSQL** como mecanismo de persistência. O acesso ao banco é realizado pelo adaptador de persistência, implementado com **SQLAlchemy**, enquanto o **Alembic** é responsável pelo versionamento e aplicação das migrações do banco de dados.
-
-São armazenadas informações relacionadas às filas, senhas, atendimentos, histórico de alterações de estado e eventos pendentes de processamento da Outbox.
-
-As operações que exigem consistência são realizadas por meio de transações, utilizando os mecanismos de integridade referencial e controle de concorrência do PostgreSQL. Dessa forma, busca-se garantir a consistência dos dados em operações concorrentes, especialmente na emissão e chamada de senhas.
-
-A API externa de horários é consultada por meio do adaptador de integração. Não foi estabelecida, neste levantamento, a necessidade de persistir localmente as informações retornadas pelo serviço externo. Essa possibilidade depende dos requisitos de atualização, disponibilidade e utilização dos horários.
-
----
-
-## 8. Decisões de comunicação
-
-As principais decisões relacionadas à comunicação entre os componentes foram definidas considerando o desacoplamento, a interoperabilidade e a consistência das operações.
-
-| Decisão | Justificativa |
-|---|---|
-| Utilizar API REST sobre HTTP/HTTPS | Padronizar a comunicação entre clientes e backend, permitindo integração com diferentes interfaces. |
-| Utilizar chamadas internas entre módulos | Evitar comunicação de rede desnecessária dentro da aplicação. |
-| Utilizar interfaces/portas para persistência, notificações e consulta de horários | Desacoplar as regras de negócio das tecnologias externas, permitindo substituir implementações sem modificar os casos de uso. |
-| Utilizar o padrão Outbox para notificações | Registrar eventos na mesma transação das alterações de negócio, permitindo seu processamento posterior e novas tentativas em caso de falha no envio. |
-| Utilizar PostgreSQL com transações | Garantir consistência nas operações envolvendo senhas, filas e atendimentos, inclusive em cenários de concorrência. |
-| Utilizar HTTP/HTTPS para integração com a API externa de horários | Padronizar a comunicação com o serviço externo e permitir sua substituição sem alterações nas regras de negócio. |
-| Definir timeout e tratamento de falhas na consulta de horários | Evitar que indisponibilidades ou respostas lentas do serviço externo comprometam indefinidamente as operações do sistema. |
-| Utilizar uma interface substituível para notificações | Permitir a troca do provedor de mensagens ou utilização de um notificador simulado sem modificar o Processador da Outbox. |
-
----
-
-## 9. Processamento de notificações
-
-O sistema utiliza o padrão **Outbox** para desacoplar as operações de negócio do envio de notificações aos usuários.
-
-Quando uma senha é chamada, o evento correspondente é registrado na Outbox na mesma transação das alterações de estado relacionadas à operação. Dessa forma, evita-se que a alteração seja confirmada sem que o evento destinado ao processamento posterior também seja registrado.
-
-O Processador da Outbox consulta os eventos pendentes, identifica aqueles que exigem notificação e solicita o envio por meio da interface `Notificador`. O adaptador de notificação implementa essa interface e realiza a integração com o provedor externo escolhido.
-
-O processamento contempla o controle de tentativas e o registro de sucesso ou falha, permitindo que eventos não processados sejam submetidos a novas tentativas conforme a política definida.
-
-A utilização de uma interface para o notificador permite substituir o provedor externo ou utilizar uma implementação simulada durante o desenvolvimento e os testes, sem modificar a lógica de processamento da Outbox.
-
-O fluxo geral de notificação é:
-
-1. Uma operação de negócio provoca a chamada de uma senha.
-2. A alteração de estado e o evento correspondente são registrados na mesma transação.
-3. O Processador da Outbox identifica o evento pendente.
-4. O processador solicita o envio por meio da interface `Notificador`.
-5. O adaptador de notificação encaminha a mensagem ao provedor externo.
-6. O resultado do processamento é registrado, permitindo novas tentativas em caso de falha.
-
----
+A API externa de horários não participa de nenhum fluxo atual. Só deve ser
+reintroduzida se um requisito concreto justificar a nova integração.

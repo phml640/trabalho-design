@@ -1,325 +1,263 @@
 # Gestão de filas e atendimento presencial
 
-Trabalho da disciplina de Design de Software. Backend Python/FastAPI organizado
-nos módulos `gestao_filas`, `gestao_senhas` e `gestao_compartilhada`.
-O frontend React/Vite/TypeScript está em [`frontend/`](frontend/), com as visões
-`/usuario` e `/admin` e o fluxo completo de atendimento integrado à API.
+Protótipo acadêmico de Design de Software para organizar filas, emitir senhas,
+aplicar prioridade e conduzir o atendimento presencial. A demonstração inclui o
+ciclo completo, histórico persistente e uma integração de notificação substituível,
+inicialmente simulada.
 
-## Executar com Docker e PostgreSQL
+## Executar a aplicação completa
 
-Requer Docker Engine e Docker Compose v2.
+Requer apenas Docker Engine/Desktop funcionando e Docker Compose v2.20 ou superior.
+Não é necessário instalar Python, Node.js ou PostgreSQL no computador.
 
 ```bash
-cp .env.example .env
-# Edite POSTGRES_PASSWORD em .env e escolha uma senha local.
+git clone https://github.com/phml640/trabalho-design.git
+cd trabalho-design
+docker compose up --build
+```
+
+Se o repositório já estiver clonado, execute somente o último comando na raiz.
+A primeira execução precisa de internet para baixar imagens e dependências.
+Aguarde os serviços ficarem saudáveis. Para executar em segundo plano e esperar
+os healthchecks:
+
+```bash
 docker compose up --build -d --wait
 docker compose ps
 ```
 
-A API usa PostgreSQL por padrão no Compose. O banco precisa estar saudável antes
-de a API iniciar; o container da API executa `alembic upgrade head` antes do
-Uvicorn. A primeira execução baixa as imagens e instala as dependências.
+| Acesso | Endereço padrão |
+| --- | --- |
+| Página inicial | <http://localhost:8080> |
+| Usuário | <http://localhost:8080/usuario> |
+| Administrador/atendente | <http://localhost:8080/admin> |
+| Swagger | <http://localhost:8000/docs> |
+| OpenAPI | <http://localhost:8000/openapi.json> |
+| Saúde da API pelo proxy | <http://localhost:8080/api/health> |
 
-- API: <http://localhost:8000>
-- Documentação interativa: <http://localhost:8000/docs>
-- Verificação do processo HTTP: <http://localhost:8000/health>
+O Compose inicia PostgreSQL, espera seu healthcheck, inicia a API e aplica
+`alembic upgrade head` antes do Uvicorn. O Nginx só inicia após a API saudável.
+Ele serve o build React e encaminha `/api/` à API, preservando filtros e erros
+HTTP. O navegador usa a mesma origem, sem configuração manual de CORS.
+Os healthchecks conferem banco, processo HTTP e o proxy do frontend.
 
-```bash
-docker compose logs -f api
-docker compose restart api
-docker compose down
-```
+### Configuração demonstrativa
 
-O volume `postgres_data` mantém os dados após reinícios da API, do banco e após
-`docker compose down`. `docker compose down -v` apaga esse volume e os dados.
-As portas são publicadas apenas em `127.0.0.1`. `API_PORT` e `POSTGRES_PORT` em
-`.env` permitem alterar as portas locais.
-
-## Executar o frontend
-
-Com a API e o PostgreSQL iniciados, abra outro terminal. Requer Node.js 24 LTS
-(ou 22.12+ na linha 22) e npm:
+O comando funciona sem criar `.env`. Os padrões públicos são banco `gestao_filas`,
+usuário `gestao` e senha **exclusivamente demonstrativa** `gestao_demo_local`.
+Para personalizar portas ou credenciais locais:
 
 ```bash
-cd frontend
-npm ci
 cp .env.example .env
-npm run dev
+# Edite os valores desejados e execute novamente o Compose.
 ```
 
-Abra <http://localhost:5173>. A página inicial permite escolher a visão. Para
-demonstrar em duas janelas, abra `/usuario` em uma e `/admin` na outra. O proxy do
-Vite encaminha `/api` ao backend em `http://127.0.0.1:8000`; ajuste
-`VITE_API_PROXY_TARGET` em `frontend/.env` se a API usar outra porta. Não é
-necessário alterar CORS no backend para usar esse proxy.
+| Variável | Padrão no Compose |
+| --- | --- |
+| `FRONTEND_PORT` | `8080` |
+| `API_PORT` | `8000` |
+| `POSTGRES_PORT` | `5432`, publicada somente no endereço local |
+| `POSTGRES_DB` | `gestao_filas` |
+| `POSTGRES_USER` | `gestao` |
+| `POSTGRES_PASSWORD` | `gestao_demo_local` |
 
-O administrador cria a fila e informa atendente e guichê. O usuário seleciona
-essa fila e emite uma senha. O administrador chama, inicia e finaliza o atendimento;
-a janela do usuário acompanha as mudanças automaticamente a cada três segundos.
-Histórico e notificações simuladas podem ser consultados no painel. No celular,
-a senha emitida é trazida para a área visível automaticamente.
+A API usa o host interno `postgres:5432`; o Nginx usa `api:8000`. As portas
+publicadas ficam em `127.0.0.1`. Variáveis do host como `DATABASE_URL` não
+substituem essa composição. Alterar usuário/senha/banco no `.env` não modifica
+um volume PostgreSQL que já foi inicializado: conserve a configuração anterior
+ou limpe explicitamente o volume descartável antes de começar outra demonstração.
 
-O navegador conserva somente o identificador da senha no `localStorage`. Número,
-estado, fila e histórico são consultados na API; PostgreSQL continua sendo a
-fonte oficial. Não há login ou controle de acesso entre as visões, e a prioridade
-continua demonstrativa, sem validação de elegibilidade.
-
-Para verificar o build ou visualizar a versão compilada:
+### Parar, reiniciar e limpar
 
 ```bash
-npm run build
-npm run preview
+# Logs dos três serviços
+docker compose logs -f
+
+# Reiniciar, conservando os dados
+docker compose restart
+docker compose up -d --wait
+
+# Parar e remover containers/rede, mantendo o banco
+docker compose down
+
+# Iniciar novamente com os mesmos dados
+docker compose up --build -d --wait
+
+# Apagar o volume PostgreSQL e todos os dados da demonstração
+docker compose down -v
 ```
 
-O preview fica em <http://localhost:4173> e também usa o proxy local. Instruções de
-configuração, testes de navegador e roteiro de demonstração estão no
-[README do frontend](frontend/README.md).
+O volume nomeado `postgres_data` sobrevive a reinícios e a `down`. Somente a
+limpeza com `-v` remove seus dados. Migrações são reaplicadas de forma idempotente
+na inicialização da API. Uma falha de migração impede a API de servir um esquema
+incompatível; consulte `docker compose logs api` para diagnosticar.
 
-## Executar sem Docker
+## Stack e arquitetura
 
-Requer Python 3.11 ou superior.
+| Parte | Tecnologias |
+| --- | --- |
+| Backend | Python 3.11+, FastAPI, Uvicorn; imagem Python 3.12 |
+| Persistência | PostgreSQL 17, SQLAlchemy 2.0, psycopg 3, Alembic |
+| Frontend | React, TypeScript, Vite, CSS próprio; build com Node 24 |
+| Servidor web | Nginx 1.30, SPA e proxy `/api` |
+| Testes | unittest, PostgreSQL real, cliente HTTP da biblioteca padrão e Playwright |
+
+O backend é um **monólito modular com características de Arquitetura Hexagonal**.
+`gestao_filas` coordena filas; `gestao_senhas` contém senha, seleção e atendimento;
+`gestao_compartilhada` concentra contratos transacionais, virada, histórico e
+notificações. Casos de uso dependem de portas e do domínio. API e adaptadores
+fazem a tradução para HTTP, PostgreSQL e notificação simulada. Há uma única
+transação local de negócio, sem microsserviços, Redis ou mensageria externa.
+
+A composição em `criar_app()` seleciona a unidade de trabalho e o notificador.
+A seleção, o contador da fila, o estado, o histórico e a Outbox confirmam ou
+revertem juntos. PostgreSQL bloqueia a linha da fila; o adaptador em memória
+permanece para testes rápidos em um processo. A entrega da notificação ocorre
+após o commit, sem transação aberta durante o envio.
+
+Responsabilidades, GRASP/SOLID, coesão, acoplamento, trade-offs e evolução dos
+adaptadores estão em [docs/componentes.md](docs/componentes.md). A API externa
+de horários citada no levantamento inicial **não foi implementada e está fora
+do escopo do protótipo**. Não é uma dependência necessária à execução.
+
+## Roteiro de demonstração em duas janelas
+
+1. Abra `/admin`, clique em **Nova fila** e crie uma fila. Informe o identificador
+   do atendente e o guichê, sem usar dados pessoais reais.
+2. Em outra janela, abra `/usuario`, escolha a fila e emita uma senha normal.
+   O número e o estado retornados pela API aparecem em destaque.
+3. Para demonstrar prioridade, emita senhas prioritárias em janelas/perfis de
+   usuário independentes. Havendo ambas as classes, o backend chama até duas
+   prioritárias consecutivas antes de uma normal, mantendo FIFO dentro da classe.
+4. No administrador, consulte as senhas e clique em **Chamar próxima senha**.
+   A visão do usuário mostra a chamada e o guichê nas consultas periódicas,
+   normalmente a cada três segundos, sem recarregar a página.
+5. Clique em **Iniciar atendimento** e **Finalizar atendimento**. Consulte as
+   transições na aba **Histórico**, incluindo o filtro `Finalizada` e a paginação.
+6. Na aba **Notificações**, clique em **Simular falha no envio**. A chamada não é
+   desfeita. Clique em **Processar notificações** para tentar novamente e consulte
+   a mensagem simulada e as tentativas. O lote atua sobre todas as filas.
+7. Emita outra senha, encerre a fila e confirme o cancelamento das pendências.
+   Verifique o motivo na visão do usuário. Emissão, chamada e início em fila
+   encerrada são bloqueados; um atendimento já iniciado pode ser finalizado.
+8. Reabra a fila para novas emissões. Senhas canceladas não são reativadas.
+9. Reinicie os serviços com os comandos acima e recarregue as páginas. Senhas,
+   contador, histórico, mensagens e tentativas continuam no banco.
+
+O navegador salva apenas o id da senha em `localStorage`; o estado vem da API.
+Uma visão de usuário acompanha uma senha por vez. As visões **não constituem
+uma fronteira de segurança**: não há login, autenticação, autorização ou gestão
+de usuários. A prioridade é demonstrativa, sem verificação real de elegibilidade.
+
+## Testes sem Python ou Node no host
+
+### Regressões do backend
+
+Com os serviços iniciados, crie o banco separado uma vez:
+
+```bash
+docker compose exec postgres sh -c 'createdb -U "$POSTGRES_USER" gestao_filas_teste'
+docker compose run --rm --no-deps api python scripts/testar_backend.py
+```
+
+Se o banco já existir, não repita `createdb`. O runner configura a conexão com
+esse banco sem imprimir credenciais. Cada classe PostgreSQL usa um schema
+exclusivo e descartável. A suíte cobre concorrência entre chamadas/pools, FIFO,
+prioridade, contadores, virada, rollback, falha de envio, idempotência, migrações
+e reinício real do processo Uvicorn. Nenhum teste existente foi removido.
+
+Para executar somente as regressões rápidas sem banco:
+
+```bash
+docker compose run --rm --no-deps -e PERSISTENCIA=memoria api python -m unittest discover -s tests -v
+```
+
+Nesse comando, os cenários PostgreSQL são marcados como ignorados.
+
+### Teste ponta a ponta da entrega e persistência
+
+O teste cria dados fictícios e processa notificações; use a instância acadêmica.
+Ele verifica o frontend compilado, as rotas React, o proxy e o fluxo REST completo:
+
+```bash
+docker compose exec api python scripts/verificar_api.py --registrar /tmp/verificacao-entrega.json
+```
+
+Para conferir os dados após remover e recriar os containers, preservando o volume:
+
+```bash
+docker compose cp api:/tmp/verificacao-entrega.json ./verificacao-entrega.json
+docker compose down
+docker compose up --build -d --wait
+docker compose cp ./verificacao-entrega.json api:/tmp/verificacao-entrega.json
+docker compose exec api python scripts/verificar_api.py --conferir /tmp/verificacao-entrega.json
+```
+
+A comparação inclui senhas, números, contador da fila, histórico, eventos,
+tentativas e mensagens simuladas. O JSON é somente um registro esperado do teste;
+a aplicação continua usando PostgreSQL como fonte oficial.
+
+### Navegador e ASR02
+
+Os sete testes Playwright podem apontar ao Nginx existente com `E2E_BASE_URL`.
+São opcionais para executar a aplicação e exigem Node/Chromium apenas no ambiente
+de desenvolvimento/testes. Instruções em [frontend/README.md](frontend/README.md).
+
+Resultados, condições, medição básica com 50 clientes/10 mil senhas e comandos
+para reprodução estão em [docs/validacao.md](docs/validacao.md). A medição é
+exploratória; **a meta do ASR02 não foi atingida no cenário medido**, pois consulta
+e chamada ultrapassaram o p95 de 500 ms. Os resultados não são uma certificação
+de capacidade do ambiente Docker ou do hardware da apresentação.
+
+## Desenvolvimento local opcional
+
+O caminho de entrega é o Compose completo. Para alterar a interface com hot reload,
+use a API do Compose e as instruções do [frontend](frontend/README.md). Seu proxy
+Vite também usa `/api`, com destino configurável em `frontend/.env`.
+
+Para trabalhar somente com o backend, instale Python 3.11+ em um ambiente virtual:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
-```
-
-Para testes rápidos, o padrão fora do Docker continua sendo memória:
-
-```bash
 PERSISTENCIA=memoria uvicorn gestao_filas.api:app --reload
 ```
 
-Esse adaptador funciona em um único processo e perde os dados ao reiniciar.
-Para usar PostgreSQL, inicie um banco local ou apenas o serviço do Compose:
+A execução em memória perde os dados ao reiniciar. Para PostgreSQL local, exporte
+`PERSISTENCIA=postgres` e `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`,
+`POSTGRES_USER`, `POSTGRES_PASSWORD` conforme `.env.example`; alternativamente,
+`DATABASE_URL` tem precedência no modo local. Execute `alembic upgrade head` antes
+do Uvicorn. O shell deve exportar essas variáveis; o Python não carrega `.env`
+automaticamente. No Compose, essa configuração já está pronta.
 
-```bash
-cp .env.example .env  # Se ainda não existir; edite a senha antes de continuar.
-docker compose up -d --wait postgres
-set -a
-source .env
-set +a
-alembic upgrade head
-uvicorn gestao_filas.api:app --reload --port "${API_PORT:-8000}"
-```
+## Simplificações e limites acadêmicos
 
-O arquivo `.env` é carregado automaticamente pelo Compose. Na execução local,
-o shell precisa exportar as variáveis como no exemplo acima.
-
-| Variável | Uso |
-| --- | --- |
-| `PERSISTENCIA` | `memoria` ou `postgres`; padrão local `memoria`, Compose `postgres`. |
-| `POSTGRES_HOST` | Host do banco; padrão local `localhost`, Compose `postgres`. |
-| `POSTGRES_PORT` | Porta do banco; padrão `5432`. No Compose altera a porta publicada, mantendo `5432` entre os containers. |
-| `POSTGRES_DB` | Nome do banco; padrão `gestao_filas`. |
-| `POSTGRES_USER` | Usuário do banco; padrão `gestao`. |
-| `POSTGRES_PASSWORD` | Senha local; obrigatória se não houver `DATABASE_URL`. |
-| `DATABASE_URL` | Opcional na execução local; tem precedência sobre `POSTGRES_*`. Aceita `postgresql://` e `postgresql+psycopg://`. |
-| `API_PORT` | Porta HTTP publicada pelo Compose; padrão `8000`. |
-| `TEST_DATABASE_URL` | Banco separado para os testes PostgreSQL. |
-
-Senhas com caracteres especiais não precisam de escape quando fornecidas por
-`POSTGRES_PASSWORD`; em uma URL, devem ser codificadas conforme o formato de URL.
-O Compose configura a conexão pelos campos `POSTGRES_*` de `.env`.
-
-## Migrações
-
-Com as variáveis de conexão exportadas e o banco disponível:
-
-```bash
-alembic upgrade head
-alembic current
-alembic check
-```
-
-A revisão inicial `0001` cria o esquema completo e pode ser aplicada a um banco
-vazio. Repetir `upgrade head` não recria tabelas nem apaga dados. Para evoluir o
-esquema, altere os modelos de infraestrutura, gere uma nova revisão com
-`alembic revision --autogenerate -m "descricao"` e revise o SQL antes de aplicá-la.
-Os testes verificam também o ciclo de downgrade/upgrade em esquema descartável.
-A revisão incremental `0002` acrescenta tentativas, notificações simuladas e a
-reserva temporária da Outbox. Execute `alembic upgrade head` também em bancos já
-criados na etapa anterior. No Docker, reconstrua a API com o comando inicial.
-
-## Integração e persistência
-
-Os dois gerenciadores recebem a mesma porta `UnidadeDeTrabalho`, definida em
-`gestao_compartilhada.application`. A API faz essa composição em `criar_app()`;
-testes também podem injetar explicitamente qualquer adaptador.
-
-O adaptador `gestao_compartilhada.postgres.UnidadeDeTrabalhoPostgres` usa uma
-Session por transação, com isolamento `READ COMMITTED`. Toda operação de uma
-fila bloqueia sua linha com `SELECT ... FOR UPDATE` antes de ler as entidades.
-Isso serializa emissão, chamada, atendimento e virada da mesma fila, inclusive
-entre processos da API. Filas diferentes têm bloqueios independentes. Operações
-globais usam um advisory lock transacional para proteger a verificação e criação
-de nomes, preservando a comparação `casefold()` existente.
-
-Estado, contador de prioridade, numeração, histórico e evento são confirmados
-juntos. Qualquer exceção reverte a transação; números de senha não são consumidos
-em emissões revertidas. As entidades retornadas são objetos de domínio separados
-do ORM. Os repositórios PostgreSQL só podem ser usados dentro de seu contexto
-transacional; após a saída, a Session fica encerrada.
-
-| Tabela | Conteúdo |
-| --- | --- |
-| `filas` | Estado, dia operacional, nome único normalizado e contador de chamadas prioritárias. |
-| `senhas` | Emissão, usuário, classe, estado e dados de atendimento (atendente, guichê e horários), como no domínio atual. |
-| `contadores_senhas` | Numeração transacional por fila, dia e classe. |
-| `historico_transicoes` | Transições com identificador estável, estado anterior/novo, horário e motivo. |
-| `outbox` | Eventos `SenhaChamada` com identificador estável e campos para tentativas, erro e processamento posterior. |
-| `tentativas_notificacao` | Cada tentativa, com início, fim e erro quando houver. |
-| `notificacoes_simuladas` | Mensagens registradas pelo `FakeNotificador`, únicas por evento. |
-
-Chaves estrangeiras preservam a associação entre fila, senha, histórico e evento.
-Uma restrição única protege a numeração por fila/dia/classe. Há índices para
-seleção de senhas, histórico e eventos pendentes. Horários usam `timestamptz` e
-conexões em UTC; o dia operacional continua calculado em `America/Sao_Paulo`.
-Os dados de atendimento permanecem na senha para preservar o modelo existente.
-
-## Contrato para o frontend
-
-Todos os endpoints, corpos, respostas e filtros estão descritos em
-[docs/api.md](docs/api.md) e no OpenAPI em `/docs`. O fluxo completo está disponível:
-criar fila, emitir, consultar, chamar, iniciar e finalizar atendimento e consultar
-histórico. Histórico e notificações usam `limite` (1–100, padrão 20), `offset` e
-`tem_mais`. A lista de senhas ativas conserva o formato de lista já existente.
-
-As visões de usuário e administrador/atendente são convenções de apresentação,
-**não constituem uma fronteira de segurança**. Não há autenticação ou autorização;
-qualquer cliente local pode chamar os endpoints administrativos. A emissão aceita
-um identificador simbólico de usuário; as respostas públicas de senha não expõem
-esse identificador nem o identificador do atendente. Não forneça dados pessoais
-reais na demonstração. A classificação prioritária é escolhida para demonstrar
-a política de chamada; **a elegibilidade real não é verificada pelo protótipo**.
-
-## Demonstração pela API
-
-Crie uma fila em `POST /filas`, copie seu `id` e use-o nas operações de senha:
-
-```bash
-curl -X POST http://localhost:8000/filas \
-  -H 'Content-Type: application/json' -d '{"nome":"Caixa"}'
-
-# Substitua pelo id devolvido na criação.
-FILA_ID=COLE_O_ID_AQUI
-curl -X POST "http://localhost:8000/filas/$FILA_ID/senhas" \
-  -H 'Content-Type: application/json' -d '{"usuario_id":"usuario-demo","tipo":"normal","canal":"totem"}'
-curl -X POST "http://localhost:8000/filas/$FILA_ID/senhas" \
-  -H 'Content-Type: application/json' -d '{"usuario_id":"demo-p1","tipo":"prioritaria"}'
-curl -X POST "http://localhost:8000/filas/$FILA_ID/senhas" \
-  -H 'Content-Type: application/json' -d '{"usuario_id":"demo-p2","tipo":"prioritaria"}'
-# As três chamadas devem retornar P001, P002 e N001, nessa ordem.
-for CHAMADA in 1 2 3; do
-  curl -X POST "http://localhost:8000/filas/$FILA_ID/senhas/chamada" \
-    -H 'Content-Type: application/json' -d '{"atendente_id":"a1","guiche_id":"g1"}'
-done
-
-# Copie o id de uma senha chamada.
-SENHA_ID=COLE_O_ID_AQUI
-curl -X POST "http://localhost:8000/senhas/$SENHA_ID/atendimento/inicio"
-curl -X POST "http://localhost:8000/senhas/$SENHA_ID/atendimento/finalizacao"
-curl "http://localhost:8000/senhas/$SENHA_ID"
-curl "http://localhost:8000/filas/$FILA_ID/historico?limite=20&offset=0"
-
-# A falha fica registrada, preservando as chamadas já confirmadas.
-curl -X POST http://localhost:8000/notificacoes/processamento \
-  -H 'Content-Type: application/json' -d '{"simular_falha":true}'
-curl "http://localhost:8000/notificacoes?fila_id=$FILA_ID"
-# Uma nova execução tenta novamente os eventos que falharam.
-curl -X POST http://localhost:8000/notificacoes/processamento \
-  -H 'Content-Type: application/json' -d '{}'
-curl "http://localhost:8000/notificacoes/simuladas?fila_id=$FILA_ID"
-docker compose restart api
-# Após a API voltar, consulte novamente senha, histórico e notificações.
-```
-
-Aguarde a API voltar a responder após o reinício. Estados, histórico, tentativas e
-mensagens simuladas continuam armazenados. Pela documentação interativa, também
-é possível listar, encerrar e
-reabrir filas. Filas inexistentes retornam 404, filas encerradas retornam 409 e
-entradas inválidas retornam 422.
-
-A política continua sendo de no máximo duas prioritárias consecutivas quando há
-normais aguardando, com FIFO por horário e id dentro da classe. Encerrar uma fila
-cancela suas senhas aguardando ou chamadas, preservando atendimentos em andamento.
-A primeira operação pertinente após a virada diária cancela pendências antigas,
-preserva o histórico e reinicia os contadores do novo dia.
-
-## Notificações simuladas
-
-`Notificador`, definido em `gestao_compartilhada.notificacoes`, é a porta
-substituível de envio. A composição padrão usa `FakeNotificador`; outro adaptador
-pode ser injetado em `criar_app(uow, notificador=adaptador)` sem mudar os casos de
-uso. Nenhuma mensagem real é enviada e nenhum contato pessoal é necessário.
-
-`POST /notificacoes/processamento` processa manualmente um lote pendente, depois
-do commit da chamada. Primeiro persiste a reserva e o início da tentativa; depois
-chama o notificador **sem uma transação aberta**; por fim grava sucesso ou falha
-em nova transação. A chamada da senha nunca é revertida por falha de envio.
-O retorno HTTP 200 informa quantas tentativas tiveram sucesso ou falha no lote.
-
-Falhas ficam disponíveis para a próxima execução. Se o processo for interrompido,
-a reserva expira em 30 segundos; a próxima execução registra `reserva_expirada`
-na tentativa anterior e tenta de novo. O id do evento permanece estável. O Fake
-registra uma única mensagem por evento, inclusive se houver reenvio após perda de
-confirmação. Um provedor real precisaria respeitar essa chave para evitar mensagens
-duplicadas; a integração tem semântica de pelo menos uma tentativa.
-
-Use `/notificacoes` para verificar pendências e resultados,
-`/notificacoes/{evento_id}/tentativas` para consultar cada tentativa e
-`/notificacoes/simuladas` para inspecionar as mensagens. Nenhum processador
-automático ou serviço adicional é necessário para a demonstração.
-
-## Testes
-
-Regressões rápidas em memória, sem banco:
-
-```bash
-PERSISTENCIA=memoria python -m unittest discover -s tests -v
-```
-
-Sem `TEST_DATABASE_URL`, os testes PostgreSQL são marcados como ignorados.
-Para executar todos os testes, crie um banco separado (com o Compose iniciado):
-
-```bash
-docker compose exec postgres sh -c 'createdb -U "$POSTGRES_USER" gestao_filas_teste'
-set -a
-source .env
-set +a
-# Defina a URL do banco de teste com sua senha local; codifique caracteres especiais.
-export TEST_DATABASE_URL='postgresql+psycopg://gestao:SENHA@localhost:5432/gestao_filas_teste'
-PERSISTENCIA=memoria python -m unittest discover -s tests -v
-```
-
-Adapte usuário, porta e senha da URL à sua configuração. O usuário do banco de
-teste precisa poder criar e remover schemas. Cada classe cria um schema exclusivo,
-aplica migrações reais e remove apenas esse schema ao terminar. As tabelas são
-limpas entre cenários; use um banco de teste separado.
-
-Os testes incluem as regressões existentes de prioridade, FIFO, concorrência,
-virada, encerramento e rollback no adaptador real. Verificam também falhas de
-integridade após gravações SQL, independência dos bloqueios entre filas, chamadas
-em pools independentes, migrações reproduzíveis e reinício de um processo Uvicorn
-com preservação de senhas, contadores, histórico e Outbox.
-Também verificam o fluxo HTTP completo, filtros e paginação, transições inválidas,
-falha e retentativa do notificador, idempotência, recuperação de reservas e
-persistência das mensagens simuladas e dos atendimentos após reiniciar a API.
-
-## Limites desta etapa
-
-O envio é simulado e o processamento é manual, sem agendamento ou política de
-backoff. Autenticação permanece fora deste escopo. A consulta da fila ativa
-ainda carrega as senhas da fila; a meta de carga do ASR02 não foi medida.
-O Compose inicial usa uma instância da API e executa as migrações na inicialização.
+- Notificações são simuladas e processadas manualmente, sem serviço pago,
+  agendamento automático ou política de backoff. Uma reserva interrompida pode
+  ser retomada após 30 segundos; não se promete entrega exatamente uma vez.
+- A fila ativa mantém um array e carrega as senhas da fila. Histórico e
+  notificações têm paginação. O bloqueio por fila limita a concorrência dessa fila;
+  consulte a medição antes de afirmar atendimento à meta de desempenho.
+- Dados de atendimento ficam associados à senha; não há CRUD de guichês,
+  cadastro de usuários, autenticação, validação real de prioridade ou totem físico.
+- Não há integração com API de horários, frontend em nuvem, HTTPS, backups
+  automatizados, múltiplas réplicas da API ou migrações concorrentes entre réplicas.
+- O frontend usa polling, que pode ser adiado quando o navegador suspende a aba.
+  As credenciais incluídas são públicas e servem apenas à demonstração local.
+- O build usa `package-lock.json`; as imagens e faixas das dependências Python
+  ainda podem receber atualizações. A auditoria transitiva das ferramentas do
+  frontend e a limitação de validação Docker deste ambiente estão registradas
+  na documentação de validação.
 
 ## Documentação
 
-- [Requisitos e regras de negócio](docs/requisites.md)
-- [ADR-001 — Stack inicial do backend](docs/adr/ADR-001-escolha-da-stack-do-backend.md)
-- [ADR-002 — Monólito modular, Arquitetura Hexagonal e eventos internos](docs/adr/ADR-002-monolito-modular-hexagonal-eventos.md)
-- [ADR-003 — PostgreSQL e estratégia de persistência](docs/adr/ADR-003-postgresql-persistencia.md)
-- [ADR-004 — Notificações após a chamada](docs/adr/ADR-004-notificacoes.md)
-- [Transações no SQLAlchemy](https://docs.sqlalchemy.org/en/20/orm/session_basics.html)
-- [Bloqueios no PostgreSQL](https://www.postgresql.org/docs/17/explicit-locking.html)
+- [Requisitos e ASRs](docs/requisites.md)
+- [Componentes implementados, princípios e trade-offs](docs/componentes.md)
+- [Endpoints e contratos HTTP](docs/api.md)
+- [Validação e desempenho](docs/validacao.md)
+- [Frontend e testes de navegador](frontend/README.md)
+- [ADR-001 — Stack](docs/adr/ADR-001-escolha-da-stack-do-backend.md)
+- [ADR-002 — Monólito modular e características hexagonais](docs/adr/ADR-002-monolito-modular-hexagonal-eventos.md)
+- [ADR-003 — PostgreSQL e persistência](docs/adr/ADR-003-postgresql-persistencia.md)
+- [ADR-004 — Notificações](docs/adr/ADR-004-notificacoes.md)

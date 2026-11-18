@@ -7,6 +7,11 @@ a ordem, a virada diária e as transições continuam sob responsabilidade da AP
 
 ## Executar
 
+Para a entrega completa, execute `docker compose up --build` na raiz do repositório.
+O build React é servido por Nginx em <http://localhost:8080>, com `/usuario`,
+`/admin` e proxy `/api`. Não exige Node no host. Os passos abaixo são opcionais
+para desenvolvimento com hot reload.
+
 Inicie o backend e o PostgreSQL conforme o [README principal](../README.md).
 Em outro terminal, com Node.js 24 LTS (ou 22.12+ na linha 22) e npm:
 
@@ -95,6 +100,8 @@ O build verifica os tipos e gera `dist/`. O preview local fica na porta 4173,
 com o mesmo proxy `/api`. Um servidor de arquivos estáticos de produção precisa
 configurar esse proxy separadamente e encaminhar `/usuario` e `/admin` para
 `index.html`; a configuração do Vite não é incorporada ao JavaScript compilado.
+Na entrega Docker isso já é feito por `nginx.conf` e pelo Dockerfile em dois
+estágios. O build da imagem fixa o prefixo `/api`, sem incorporar `.env` local.
 
 ## Testes de navegador
 
@@ -126,6 +133,15 @@ comando; evite reaproveitar um Vite já iniciado com outro destino. Um Chrome j�
 instalado pode ser usado com `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`, dispensando
 o download do Chromium. Capturas e traces de falhas ficam em `test-results/`.
 
+Para testar o frontend compilado já servido pelo Nginx, sem iniciar Vite:
+
+```bash
+E2E_BASE_URL=http://localhost:8080 npm run test:e2e
+```
+
+Use uma instância descartável, pois esses testes criam filas e processam
+notificações. Os testes de API que dispensam Node estão no README principal.
+
 A suíte verifica as duas janelas com atualização automática, o ciclo completo,
 prioridade, histórico, notificações com falha e retentativa, cancelamento e
 reabertura, restauração do identificador, erros HTTP, recuperação da conexão e
@@ -136,7 +152,8 @@ ausência de transbordamento horizontal em telas pequenas.
 A consulta da fila ativa mantém o array disponibilizado pelo backend. Histórico e
 notificações são paginados. A atualização periódica pode atrasar em abas suspensas
 pelo navegador e é retomada nas consultas seguintes. Não há envio real de
-notificações, autenticação, publicação em nuvem ou serviço Docker de frontend.
+notificações, autenticação ou publicação em nuvem. O serviço Docker de frontend
+serve somente arquivos compilados e o proxy, sem servidor Vite de desenvolvimento.
 
 O `npm audit` apontou um alerta transitivo em `picomatch`, usado pelas ferramentas
 de desenvolvimento Vite, sem versão corrigida disponível na linha atual durante

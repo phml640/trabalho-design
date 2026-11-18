@@ -1,39 +1,60 @@
+x-banco: &banco
+  POSTGRES_DB: ${POSTGRES_DB:-gestao_filas}
+  POSTGRES_USER: ${POSTGRES_USER:-gestao}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gestao_demo_local}
+
 services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+        restart: true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz && wget -q -O /dev/null http://127.0.0.1/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
   api:
     build: .
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     environment:
+      <<: *banco
       PERSISTENCIA: postgres
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
-      POSTGRES_DB: ${POSTGRES_DB:-gestao_filas}
-      POSTGRES_USER: ${POSTGRES_USER:-gestao}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no arquivo .env}
     depends_on:
       postgres:
         condition: service_healthy
+        restart: true
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 12
+      start_period: 20s
 
   postgres:
     image: postgres:17-bookworm
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-gestao_filas}
-      POSTGRES_USER: ${POSTGRES_USER:-gestao}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no arquivo .env}
+    environment: *banco
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 3s
       timeout: 3s
       retries: 20
+      start_period: 10s
 
 volumes:
   postgres_data:

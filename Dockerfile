@@ -11,6 +11,9 @@ RUN pip install . && useradd --create-home app
 
 COPY alembic.ini ./
 COPY migrations ./migrations
+# Ferramentas de verificação da entrega: executáveis sem Python instalado no host.
+COPY tests ./tests
+COPY scripts ./scripts
 USER app
 
 EXPOSE 8000

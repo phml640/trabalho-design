@@ -51,3 +51,15 @@ Dados de contato são acessados apenas pelo adaptador autorizado e não devem ap
 ## Critérios para revisar a decisão
 
 Reavaliar se o serviço exigir confirmação de entrega antes de considerar a chamada concluída, se a latência de notificação medida não atender à operação, ou se o volume justificar um mensageiro dedicado. Nesse caso, ainda será necessário preservar a gravação atômica da intenção de envio.
+
+## Situação na entrega do protótipo
+
+O caso de uso conceitual `ChamarProximaSenha` corresponde ao método
+`GerenciadorDeSenhas.chamar_proxima_senha`. Outbox, tentativas e mensagens do
+`FakeNotificador` estão persistidas. O processador fecha a transação de reserva
+antes de invocar o adaptador; o Fake usa uma transação própria para registrar a
+mensagem. Não há provedor de celular, dados de contato ou worker automático.
+Novas tentativas e a retomada de reservas expiradas dependem de outra solicitação
+manual de processamento. Assim, a intenção é durável, mas não há garantia de
+tentativa automática sem acionar o processador. Endpoints e exemplos estão na
+[API](../api.md#notificações-e-demonstração-de-falha).

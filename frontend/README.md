@@ -2,8 +2,9 @@
 
 Interface local em React, Vite e TypeScript para demonstrar o backend existente.
 Usa CSS próprio, sem biblioteca de componentes, gerenciador global de estado ou
-WebSockets. Não há dados de fila fictícios nem seleção de prioridade no cliente:
-a ordem, a virada diária e as transições continuam sob responsabilidade da API.
+WebSockets. Não há dados de fila fictícios nem seleção da próxima senha no cliente:
+o usuário escolhe o tipo normal/prioritário; a ordem, a virada diária e as
+transições continuam sob responsabilidade da API.
 
 ## Executar
 
@@ -68,8 +69,9 @@ recarregar. Uma visão de usuário acompanha uma senha de cada vez.
    associados pelo backend à senha chamada.
 3. Em outra janela, abra `/usuario`, selecione a fila e o tipo, e clique em
    **Emitir minha senha**. O número retornado pelo backend fica em destaque.
-4. No painel, clique em **Chamar próxima senha**. Em até cerca de três segundos
-   após a próxima consulta, a visão do usuário exibirá a chamada e o guichê.
+4. No painel, clique em **Chamar próxima senha**. Na próxima consulta periódica,
+   a visão do usuário exibirá a chamada e o guichê. O intervalo de três segundos
+   começa após a conclusão da consulta anterior; não é um prazo garantido.
 5. Clique em **Iniciar atendimento** e depois em **Finalizar atendimento**.
    A visão do usuário acompanha os estados. Recarregue-a para demonstrar que o
    identificador é recuperado e o estado é relido do servidor.
@@ -109,22 +111,26 @@ Os testes usam a API real e criam filas e senhas. Execute-os com um banco
 PostgreSQL separado e descartável: o processamento de notificações é global.
 Não aponte os testes para um ambiente com dados de atendimento reais.
 
-Prepare o banco conforme o README principal, exporte `TEST_DATABASE_URL` e inicie
-a API de teste na raiz do projeto, com o ambiente Python ativado:
+Crie o banco separado conforme o README principal e inicie a API de teste na raiz
+do projeto, com o ambiente Python ativado. A URL abaixo corresponde aos valores
+demonstrativos padrão do Compose; adapte usuário, senha e porta se tiver alterado
+o `.env` (caracteres especiais da senha devem ser codificados na URL):
 
 ```bash
+export TEST_DATABASE_URL='postgresql+psycopg://gestao:gestao_demo_local@127.0.0.1:5432/gestao_filas_teste'
 export DATABASE_URL="$TEST_DATABASE_URL"
 alembic upgrade head
-PERSISTENCIA=postgres uvicorn gestao_filas.api:app --host 127.0.0.1 --port 8000
+PERSISTENCIA=postgres uvicorn gestao_filas.api:app --host 127.0.0.1 --port 18000
 ```
 
-Em outro terminal:
+A porta 18000 evita conflito com a API da demonstração na porta 8000. Em outro
+terminal, aponte o proxy de teste a essa API separada:
 
 ```bash
 cd frontend
 npm ci
 npx playwright install chromium
-npm run test:e2e
+VITE_API_PROXY_TARGET=http://127.0.0.1:18000 npm run test:e2e
 ```
 
 O Playwright inicia o Vite na porta 5173. A API deve estar disponível antes do
@@ -139,8 +145,10 @@ Para testar o frontend compilado já servido pelo Nginx, sem iniciar Vite:
 E2E_BASE_URL=http://localhost:8080 npm run test:e2e
 ```
 
-Use uma instância descartável, pois esses testes criam filas e processam
-notificações. Os testes de API que dispensam Node estão no README principal.
+Esse comando usa a API da instância indicada por `E2E_BASE_URL`, não a API de teste
+da porta 18000; `DATABASE_URL` no shell não muda o destino do Nginx. Use uma
+instância descartável, pois os testes criam filas e processam notificações.
+Os testes de API que dispensam Node estão no README principal.
 
 A suíte verifica as duas janelas com atualização automática, o ciclo completo,
 prioridade, histórico, notificações com falha e retentativa, cancelamento e
@@ -155,8 +163,9 @@ pelo navegador e é retomada nas consultas seguintes. Não há envio real de
 notificações, autenticação ou publicação em nuvem. O serviço Docker de frontend
 serve somente arquivos compilados e o proxy, sem servidor Vite de desenvolvimento.
 
-O `npm audit` apontou um alerta transitivo em `picomatch`, usado pelas ferramentas
-de desenvolvimento Vite, sem versão corrigida disponível na linha atual durante
-esta implementação. As dependências estão travadas em `package-lock.json`; o
-servidor de desenvolvimento está limitado ao endereço local. Revise o alerta ao
-atualizar essas ferramentas.
+A auditoria registrada na etapa de frontend apontou um alerta transitivo em
+`picomatch`, usado pelas ferramentas de desenvolvimento Vite, sem versão corrigida
+disponível na linha consultada naquela ocasião. Isso não é uma nova verificação
+da situação atual das dependências. As versões estão travadas em
+`package-lock.json`; o servidor de desenvolvimento está limitado ao endereço
+local. Revise o alerta ao atualizar essas ferramentas.

@@ -63,3 +63,20 @@ O bloqueio por fila evita que duas chamadas concorrentes leiam o mesmo contador 
 ## Critérios para revisar a decisão
 
 Reavaliar se testes de carga mostrarem contenção excessiva por fila, se o volume histórico exigir particionamento ou retenção definida, ou se restrições de implantação impedirem PostgreSQL. Qualquer alternativa precisa preservar as invariantes de seleção, histórico e outbox.
+
+## Situação na entrega do protótipo
+
+SQLAlchemy e Alembic já estão nas dependências. O adaptador fica em
+`gestao_compartilhada.postgres`, com modelos separados do domínio e bloqueio da
+fila. Para preservar o modelo existente, os dados de atendimento foram mantidos
+em `senhas`, sem entidade ou tabela de atendimento separada. Usuário, atendente
+e guichê são identificadores textuais, sem tabelas próprias ou chaves estrangeiras
+para esses cadastros; as chaves estrangeiras existentes vinculam filas, senhas e
+registros de histórico/notificação.
+
+O índice de seleção usa a coluna `tipo`, correspondente à classe descrita acima.
+Histórico e notificações são paginados; a fila ativa ainda retorna um array.
+O repositório lê todas as senhas da fila; a aplicação filtra o dia e o domínio
+considera os estados elegíveis à seleção. Essa limitação e a meta ASR02 não atingida
+estão nos [resultados registrados](../resultados/asr02-basico.json). A decisão original e seus objetivos foram
+preservados; a paginação da fila ativa continua pendente.

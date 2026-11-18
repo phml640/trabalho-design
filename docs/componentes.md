@@ -19,7 +19,7 @@ planejado. Diagramas UML são mantidos separadamente pelo integrante responsáve
 | Porta transacional | `UnidadeDeTrabalho` e protocolos de repositórios em `gestao_compartilhada.application`: delimitam as operações de persistência necessárias aos casos de uso. |
 | Persistência PostgreSQL | `gestao_compartilhada.postgres`: modelos e repositórios SQLAlchemy, Session por transação, bloqueio da fila e migrações Alembic. |
 | Adaptador em memória | `UnidadeDeTrabalhoEmMemoria`: snapshots, rollback e bloqueio global em um processo; utilizado nas regressões rápidas. Não oferece persistência entre reinícios. |
-| Processador da Outbox | `ProcessadorOutbox`: reserva um evento em transação curta, envia sem transação aberta e registra sucesso/falha em outra transação. Execução manual pela API/interface. |
+| Processador da Outbox | `ProcessadorOutbox`: reserva um evento em transação curta, fecha a reserva antes de invocar o notificador e registra sucesso/falha em outra transação. Execução manual pela API/interface. |
 | Porta de notificação | `Notificador.notificar(evento)`: contrato substituível, com id estável como chave de idempotência. |
 | Notificador simulado | `FakeNotificador`: persiste uma mensagem única por evento, sem celular, SMS, WhatsApp ou contato real. Permite simular falha e inspecionar tentativas. |
 
@@ -27,6 +27,20 @@ PostgreSQL, API e frontend têm containers próprios por necessidade de execuç�
 As responsabilidades de negócio estão em **um único backend**, com chamadas
 internas e transação local compartilhada. A separação dos containers de banco e
 servidor web não torna a solução um conjunto de microsserviços.
+
+Essa é a organização configurada no código e nos Dockerfiles. Cada integrante
+deve verificar sua execução no ambiente local, conforme o [README](../README.md).
+
+### Conceitos e representações do domínio
+
+| Conceito | Representação e responsabilidade |
+| --- | --- |
+| Fila | `Fila`: estado aberta/encerrada, dia operacional e contador prioritário; suas operações validam disponibilidade e alteram esse estado. |
+| Senha | `Senha`: número por fila/dia/tipo, identificação simbólica do usuário, canal e ciclo de estados; valida transições e ordem dos horários. |
+| Atendimento | Parte de `Senha`, com atendente, guichê, início e fim. Não há entidade, tabela ou identificador de atendimento separado. |
+| Histórico | `TransicaoSenha`: registro imutável com estados anterior/novo, instante e dados operacionais. A identificação do usuário permanece na senha associada, sem cópia no registro da transição. |
+| Evento de chamada | `SenhaChamada`: fato imutável, com ids de evento, fila e senha e horário. O acompanhamento de entrega está em `MensagemOutbox` e `TentativaNotificacao`. |
+| Usuário, atendente e guichê | Referências textuais na senha; não são entidades cadastradas e não possuem chaves estrangeiras para tabelas próprias. |
 
 ## Atores e funcionalidades fora do escopo
 
@@ -36,10 +50,14 @@ servidor web não torna a solução um conjunto de microsserviços.
 | Atendente/administrador | Cria, encerra/reabre filas, chama e atende senhas e consulta registros na mesma visão administrativa. |
 | Guichês e atendentes | Identificadores informados na chamada; não possuem cadastro ou gestão de usuários. |
 | Operador | Pode inspecionar eventos, mensagens e tentativas no painel; não existe papel/permissão separado. |
-| Totem físico | Não implementado. A API aceita o canal `totem`, mas não há aplicação ou equipamento específico para esse canal. |
-| Provedor real de notificações | Não integrado. Há apenas a porta e sua implementação simulada. |
+| Totem físico | Planejado, não implementado. A API aceita o canal `totem`, mas não há aplicação ou equipamento específico para esse canal. |
+| Provedor real de notificações | Planejado, não implementado. Há apenas a porta e sua implementação simulada. |
 | API externa de horários | **Fora do escopo do protótipo. Não existem porta, adaptador, endpoint ou requisição a essa API.** Referências anteriores eram uma intenção, não uma dependência implementada. |
-| Autenticação, autorização e elegibilidade prioritária | Não implementadas. A escolha de visão não é uma fronteira de segurança; a prioridade é demonstrativa. |
+| Autenticação, autorização e elegibilidade prioritária | Planejadas como exigências do sistema pretendido, não implementadas no protótipo. A escolha de visão não é uma fronteira de segurança; a prioridade é demonstrativa. |
+
+As simplificações implementadas — identificação simbólica, classificação
+demonstrativa e envio simulado/manual — estão relacionadas a RF01, RF02, RF03 e
+RF07 na [situação dos requisitos](requisites.md#situação-no-protótipo).
 
 ## Coesão, acoplamento e características hexagonais
 
@@ -84,18 +102,28 @@ anterior. A numeração por fila/dia/classe também é transacional, sem consumi
 números em rollback. Operações globais usam advisory lock para proteger a criação
 de nomes comparados com `casefold()`.
 
+A virada diária participa da transação do caso de uso: se a operação abortar,
+também são revertidos os cancelamentos e o avanço do dia feitos nessa transação.
+
 `senhas` armazena também atendente, guichê e horários do atendimento, preservando
 o modelo existente. `historico_transicoes` conserva as transições; virada e
 encerramento não apagam registros. `outbox`, `tentativas_notificacao` e
 `notificacoes_simuladas` preservam a intenção, as tentativas e o efeito simulado.
 
-A chamada confirma antes do envio. Falha do notificador não altera o atendimento.
+A chamada confirma antes do envio. O processador fecha a transação da reserva
+antes de invocar o notificador; o Fake abre sua própria transação para registrar
+a mensagem simulada. Falha do notificador não altera o atendimento.
 Reservas de processamento expiram em 30 segundos e podem ser retomadas. O id do
 evento é estável; o Fake evita mensagens duplicadas por esse id. Um provedor real
 precisaria respeitar essa chave para evitar duplicações após perda de confirmação.
 O projeto não promete entrega exatamente uma vez e não usa event sourcing.
 
 ## Trade-offs e evolução
+
+A comparação com monólito simples e microsserviços está preservada no
+[ADR-002](adr/ADR-002-monolito-modular-hexagonal-eventos.md#alternativas-consideradas),
+relacionada à consistência do ASR01 e à modificabilidade do ASR03. Os custos de
+desempenho do ASR02 aparecem na [medição registrada](resultados/asr02-basico.json).
 
 - Uma transação local e um backend simplificam a demonstração, o diagnóstico e a
   consistência. A contrapartida é compartilhar implantação e recursos entre módulos.

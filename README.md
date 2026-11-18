@@ -87,8 +87,8 @@ docker compose up --build -d --wait
 docker compose down -v
 ```
 
-O volume nomeado `postgres_data` sobrevive a reinícios e a `down`. Somente a
-limpeza com `-v` remove seus dados. Migrações são reaplicadas de forma idempotente
+O volume nomeado `postgres_data` sobrevive a reinícios e a `down`. A
+limpeza com `down -v` remove seus dados. Migrações são reaplicadas de forma idempotente
 na inicialização da API. Uma falha de migração impede a API de servir um esquema
 incompatível; consulte `docker compose logs api` para diagnosticar.
 
@@ -113,7 +113,20 @@ A composição em `criar_app()` seleciona a unidade de trabalho e o notificador.
 A seleção, o contador da fila, o estado, o histórico e a Outbox confirmam ou
 revertem juntos. PostgreSQL bloqueia a linha da fila; o adaptador em memória
 permanece para testes rápidos em um processo. A entrega da notificação ocorre
-após o commit, sem transação aberta durante o envio.
+após o commit, sem manter aberta a transação da chamada ou da reserva durante a
+invocação do notificador. O Fake usa uma transação própria para registrar a mensagem.
+
+### Estrutura resumida
+
+| Caminho | Conteúdo |
+| --- | --- |
+| `src/gestao_filas/` | Domínio de fila, casos de uso, adaptadores e composição da API. |
+| `src/gestao_senhas/` | Domínio e casos de uso de senha/atendimento e rotas HTTP. |
+| `src/gestao_compartilhada/` | Contratos, coordenação transacional, histórico, Outbox e adaptadores de persistência/notificação. |
+| `frontend/` | Interface React, cliente HTTP, testes Playwright e entrega Nginx. |
+| `migrations/` | Revisões Alembic e configuração de execução das migrações. |
+| `tests/` e `scripts/` | Regressões, verificação HTTP da entrega e medição exploratória. |
+| `docs/` | Requisitos, componentes, API, ADRs e resultados registrados. |
 
 Responsabilidades, GRASP/SOLID, coesão, acoplamento, trade-offs e evolução dos
 adaptadores estão em [docs/componentes.md](docs/componentes.md). A API externa
@@ -203,8 +216,8 @@ Os sete testes Playwright podem apontar ao Nginx existente com `E2E_BASE_URL`.
 São opcionais para executar a aplicação e exigem Node/Chromium apenas no ambiente
 de desenvolvimento/testes. Instruções em [frontend/README.md](frontend/README.md).
 
-Resultados, condições, medição básica com 50 clientes/10 mil senhas e comandos
-para reprodução estão em [docs/validacao.md](docs/validacao.md). A medição é
+Resultados e condições da medição básica com 50 clientes/10 mil senhas
+estão em [docs/resultados/asr02-basico.json](docs/resultados/asr02-basico.json). A medição é
 exploratória; **a meta do ASR02 não foi atingida no cenário medido**, pois consulta
 e chamada ultrapassaram o p95 de 500 ms. Os resultados não são uma certificação
 de capacidade do ambiente Docker ou do hardware da apresentação.
@@ -247,15 +260,14 @@ automaticamente. No Compose, essa configuração já está pronta.
   As credenciais incluídas são públicas e servem apenas à demonstração local.
 - O build usa `package-lock.json`; as imagens e faixas das dependências Python
   ainda podem receber atualizações. A auditoria transitiva das ferramentas do
-  frontend e a limitação de validação Docker deste ambiente estão registradas
-  na documentação de validação.
+  frontend está descrita no [README do frontend](frontend/README.md#limites).
+  Cada integrante deve validar a execução Docker em seu ambiente local.
 
 ## Documentação
 
 - [Requisitos e ASRs](docs/requisites.md)
 - [Componentes implementados, princípios e trade-offs](docs/componentes.md)
 - [Endpoints e contratos HTTP](docs/api.md)
-- [Validação e desempenho](docs/validacao.md)
 - [Frontend e testes de navegador](frontend/README.md)
 - [ADR-001 — Stack](docs/adr/ADR-001-escolha-da-stack-do-backend.md)
 - [ADR-002 — Monólito modular e características hexagonais](docs/adr/ADR-002-monolito-modular-hexagonal-eventos.md)

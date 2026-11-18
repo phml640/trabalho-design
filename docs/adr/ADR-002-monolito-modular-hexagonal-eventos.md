@@ -62,3 +62,14 @@ O evento `SenhaChamada` deve carregar o identificador estável da senha, o ident
 ## Critérios para revisar a decisão
 
 Reavaliar se medições mostrarem que uma implantação única não atende à carga, se notificações exigirem escala ou disponibilidade independentes, ou se os limites entre módulos se tornarem estáveis o suficiente para justificar extração. Uma eventual separação deve preservar contratos e tratar explicitamente a perda da transação local.
+
+## Situação na entrega do protótipo
+
+O monólito modular e a direção das dependências estão implementados. As camadas
+da tabela são responsabilidades lógicas; sua distribuição concreta está em
+[componentes](../componentes.md). Autenticação/autorização permanecem planejadas.
+O processamento da Outbox está na camada de aplicação, em
+`gestao_compartilhada.notificacoes`; `notificador.py` contém o adaptador Fake.
+A entrega é posterior ao commit, mas o lote é executado sincronamente quando
+solicitado por HTTP, sem worker automático. A medição atual do ASR02 está em
+[resultados](../resultados/asr02-basico.json); a meta não foi atingida para consulta e chamada.

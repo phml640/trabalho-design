@@ -82,3 +82,12 @@ Esta decisão deverá ser reavaliada se:
 - uma nova restrição institucional impedir o uso ou a operação de Python/ASGI.
 
 Uma eventual troca do framework deve afetar principalmente a camada de entrada HTTP. Casos de uso, regras de prioridade e interfaces de persistência e notificação deverão permanecer estáveis, desde que a separação definida neste ADR seja respeitada.
+
+## Situação na entrega do protótipo
+
+A decisão original permanece como registro da stack inicial. O layout `src`
+evoluiu para `gestao_filas`, `gestao_senhas` e `gestao_compartilhada`.
+Persistência e notificações foram detalhadas no [ADR-003](ADR-003-postgresql-persistencia.md)
+e no [ADR-004](ADR-004-notificacoes.md). React/Vite/TypeScript, Nginx e Docker
+Compose foram acrescentados à entrega, sem substituir o backend escolhido.
+A configuração atual e seus limites estão no [README](../../README.md).

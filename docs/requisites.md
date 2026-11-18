@@ -20,6 +20,26 @@ O sistema organiza filas de atendimento, emite senhas, aplica prioridades, chama
 
 Os RFs consolidam os 12 itens originais: RF01 reúne emissão e canais; RF04 reúne seleção e chamada; RF05 reúne início e fim do atendimento; RF06 incorpora o registro do histórico; RF09 explicita o descarte diário sem exclusão física.
 
+### Situação no protótipo
+
+Os requisitos acima descrevem o sistema pretendido. A classificação abaixo registra
+o recorte implementado, sem remover exigências de negócio para acomodar limitações.
+
+| ID | Situação | Evidência e limites |
+| --- | --- | --- |
+| RF01 | Implementado de forma simplificada | A API aceita `online` e `totem`, associa fila, identificador de usuário e dia. O frontend emite pelo canal `online` e gera um identificador simbólico; não há cadastro nem totem físico. |
+| RF02 | Implementado de forma simplificada | O tipo é validado como normal/prioritário, mas a escolha do cliente não passa por verificação de elegibilidade. |
+| RF03 | Implementado de forma simplificada | Existem consultas de fila ativa e senha individual; respostas públicas omitem usuário e atendente. A restrição por papel não foi implementada, e histórico e operações administrativas permanecem acessíveis sem autenticação. |
+| RF04 | Implementado | `chamar_proxima_senha` aplica a política e confirma senha, contador, histórico e evento juntos. Atendente e guichê são identificadores informados na chamada, sem cadastro. |
+| RF05 | Implementado | Início e finalização validam o estado anterior, preservam as associações e registram transições. Um atendimento em andamento pode terminar após encerramento da fila. |
+| RF06 | Implementado | O histórico é persistido e consultado com paginação e filtros por fila, senha e estado da transição, incluindo finalizadas e canceladas. O usuário permanece associado pelo registro da senha. |
+| RF07 | Implementado de forma simplificada | A Outbox persiste a solicitação; `FakeNotificador` registra uma mensagem por evento. Tentativas e resultados são consultáveis, mas não há envio ao celular nem processamento automático. |
+| RF08 | Implementado | Encerramento e reabertura estão disponíveis; pendências são canceladas atomicamente. A visão administrativa é uma convenção de demonstração, sem autorização por papel. |
+| RF09 | Implementado | `garantir_dia` executa a virada na transação de operações pertinentes, sem agendador, preservando histórico e atendimentos em andamento. |
+
+Interfaces e exemplos de uso estão em [API](api.md); a distribuição das
+responsabilidades e os elementos planejados estão em [componentes](componentes.md).
+
 ## Regras de negócio
 
 ### Prioridade e ordem de chamada
@@ -36,7 +56,7 @@ Exemplo: com `N001`, `N002`, `P001`, `N003`, `P002` aguardando nessa ordem de em
 
 ### Encerramento diário e histórico
 
-- O dia operacional segue a data civil no fuso **America/Sao_Paulo**. Na primeira operação do novo dia que emite ou chama uma senha, inicia um atendimento ou consulta a fila ativa, o sistema executa a virada de modo idempotente antes da operação. Um agendamento pode antecipá-la, mas não é necessário para a correção da regra.
+- O dia operacional segue a data civil no fuso **America/Sao_Paulo**. Na primeira operação do novo dia que emite ou chama uma senha, inicia um atendimento ou consulta a fila ativa ou uma senha individual, o sistema executa a virada de modo idempotente antes da operação. Um agendamento pode antecipá-la, mas não é necessário para a correção da regra.
 - Na virada, senhas anteriores ainda **aguardando** ou **chamadas sem atendimento iniciado** passam a **canceladas**, com motivo `encerramento_diario`. Elas deixam de ser elegíveis para chamada ou início de atendimento. O contador de prioridade do novo dia começa em zero.
 - Atendimentos já **em andamento** podem ser finalizados após a meia-noite; conservam o dia de emissão da senha e os horários reais de início e fim. Senhas finalizadas ou canceladas não mudam de estado.
 - A ação administrativa de encerrar uma fila aplica o mesmo cancelamento às senhas aguardando ou chamadas, com motivo `encerramento_administrativo`; não interrompe atendimentos em andamento. A reabertura da fila exige ação administrativa e não reativa senhas canceladas.
@@ -53,6 +73,10 @@ Chamar uma senha confirma a mudança de estado e registra uma solicitação de n
 - Os critérios que conferem prioridade devem ser definidos pelo serviço e validados na emissão; o tipo prioritário não pode depender apenas de uma escolha não verificada do cliente.
 - A identificação de usuário e os dados de contato devem ser limitados ao necessário para atendimento e notificação.
 
+Autorização por papel e validação real de elegibilidade são requisitos do sistema
+pretendido, mas permanecem planejados e não implementados no protótipo. A separação
+das visões e a omissão de campos públicos não substituem controle de acesso.
+
 ## Requisitos arquiteturalmente significativos (ASRs)
 
 | ID | Requisito e cenário verificável | Influência arquitetural |
@@ -62,3 +86,16 @@ Chamar uma senha confirma a mudança de estado e registra uma solicitação de n
 | ASR03 — Modificabilidade das integrações | Ao trocar PostgreSQL por outro mecanismo de persistência, ou o canal de notificação por outro provedor, regras de prioridade e casos de uso devem permanecer inalterados; a mudança deve ficar concentrada nos adaptadores e na configuração. | Portas de saída, adaptadores, inversão de dependência e eventos internos para isolar efeitos externos. Testes de contrato deverão verificar as implementações das portas. |
 
 Segurança, disponibilidade e rastreabilidade continuam relevantes como restrições e requisitos complementares. Os três ASRs acima foram selecionados por afetarem diretamente as decisões arquiteturais e a fatia vertical prevista para o protótipo.
+
+### Situação de verificação dos ASRs
+
+- **ASR01:** há regressões em PostgreSQL para chamadas concorrentes, contadores e
+  rollback de estado, histórico e Outbox; os comandos de execução estão no
+  [README](../README.md). Cada integrante deve executá-las em seu ambiente local.
+- **ASR02:** a meta de 500 ms é mantida. A medição exploratória registrada não a
+  atingiu para consulta e chamada. A fila ativa ainda não é paginada; não se deve
+  interpretar índices existentes ou ausência de erros como comprovação da meta.
+- **ASR03:** portas, adaptadores e testes com memória/PostgreSQL e notificadores
+  substituíveis demonstram a separação. A troca por outro mecanismo de banco e o
+  envio por um provedor real não foram executados nesta entrega; exigirão novas
+  implementações e regressões.

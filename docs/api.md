@@ -3,6 +3,10 @@
 Base local: `http://localhost:8000`. O contrato OpenAPI atualizado está em
 `/openapi.json` e a documentação interativa em `/docs`.
 
+No frontend Docker, a mesma API é acessada pela base `http://localhost:8080/api`:
+o Nginx remove `/api` antes de encaminhar os caminhos da tabela abaixo. O Swagger
+continua disponível diretamente na porta 8000.
+
 O protótipo não possui autenticação ou autorização. As visões de usuário e
 administrador/atendente orientam a apresentação e **não constituem uma fronteira
 de segurança**. Todos os endpoints estão acessíveis ao cliente local. Use apenas
@@ -58,6 +62,8 @@ operacional no histórico, sem incluí-lo nas respostas públicas de consulta.
 Os horários incluem referência de fuso; dados relidos do PostgreSQL usam UTC.
 Cada transição válida grava o histórico na mesma transação. Transições inválidas
 retornam 409 e não acrescentam registros nem alteram o estado.
+A virada diária executada no caso de uso também participa dessa transação e é
+revertida se a operação abortar.
 
 ## Histórico e paginação
 
@@ -109,7 +115,7 @@ Content-Type: application/json
 {"limite":20,"simular_falha":true}
 ```
 
-Havendo um evento pendente, o resultado será:
+Havendo apenas um evento pendente disponível para o lote, o resultado será:
 
 ```json
 {"processadas":1,"sucessos":0,"falhas":1}
@@ -130,8 +136,10 @@ tentativa anterior termina com `reserva_expirada` na próxima execução.
 O Fake persiste uma única mensagem por evento, sem envio ao celular. Reservas,
 tentativas, mensagens e resultados sobrevivem a reinícios quando PostgreSQL é usado.
 
-O envio é posterior ao commit e ocorre sem transação aberta. Não há agendamento
-automático, backoff ou promessa de entrega exatamente uma vez. Um processo
+O envio é posterior ao commit; o processador não mantém a transação da chamada
+ou da reserva aberta ao invocar o notificador. O Fake abre uma transação própria
+para registrar a mensagem simulada. Não há agendamento automático, backoff ou
+promessa de entrega exatamente uma vez. Um processo
 interrompido deixa uma reserva de até 30 segundos; outra execução pode retomá-la.
 O id do evento é a chave estável de idempotência para qualquer futuro adaptador.
 

@@ -1,0 +1,230 @@
+@startuml
+' Modelo baseado no codigo de phml640/trabalho-design (main e1d7cb5, 18/11/2026)
+title Gestao de filas - Diagrama de classes (prototipo implementado)
+left to right direction
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+hide empty members
+
+package "Dominio" #F4F7FA {
+  enum EstadoFila {
+    ABERTA
+    ENCERRADA
+  }
+  enum TipoSenha {
+    NORMAL
+    PRIORITARIA
+  }
+  enum EstadoSenha {
+    AGUARDANDO
+    CHAMADA
+    EM_ATENDIMENTO
+    FINALIZADA
+    CANCELADA
+  }
+  class Fila <<entity>> {
+    +id: UUID
+    +nome: str
+    +descricao: str?
+    +estado: EstadoFila
+    +dia_operacional: date
+    +chamadas_prioritarias_consecutivas: int
+    +criada_em: datetime
+    +encerrada_em: datetime?
+    --
+    +exigir_aberta()
+    +encerrar(quando: datetime)
+    +reabrir()
+    +registrar_chamada_prioritaria()
+    +registrar_chamada_normal()
+  }
+  class Senha <<entity>> {
+    +id: UUID
+    +fila_id: str
+    +numero: str
+    +tipo: TipoSenha
+    +estado: EstadoSenha
+    +usuario_id: str
+    +emitida_em: datetime
+    +dia_operacional: date
+    +canal: str
+    +atendente_id: str?
+    +guiche_id: str?
+    +chamada_em: datetime?
+    +atendimento_iniciado_em: datetime?
+    +atendimento_finalizado_em: datetime?
+    +motivo_cancelamento: str?
+    --
+    +chamar(atendente_id, guiche_id, chamada_em)
+    +iniciar_atendimento(quando)
+    +finalizar_atendimento(quando)
+    +cancelar(motivo)
+  }
+  class TransicaoSenha <<value object>> {
+    +id: UUID
+    +senha_id: UUID
+    +fila_id: UUID
+    +estado_anterior: str?
+    +estado: str
+    +quando: datetime
+    +atendente_id: str?
+    +guiche_id: str?
+    +motivo: str?
+  }
+  class SenhaChamada <<event>> {
+    +id: UUID
+    +senha_id: UUID
+    +fila_id: UUID
+    +chamada_em: datetime
+  }
+  class MensagemOutbox <<entity>> {
+    +evento: SenhaChamada
+    +tentativas: int
+    +processado_em: datetime?
+    +ultimo_erro: str?
+    +reservado_ate: datetime?
+  }
+  class TentativaNotificacao <<value object>> {
+    +id: UUID
+    +evento_id: UUID
+    +numero: int
+    +iniciada_em: datetime
+    +finalizada_em: datetime?
+    +erro: str?
+  }
+  class NotificacaoSimulada <<value object>> {
+    +evento_id: UUID
+    +senha_id: UUID
+    +fila_id: UUID
+    +mensagem: str
+    +criada_em: datetime
+  }
+}
+
+package "Aplicacao - casos de uso e portas" #EDF8ED {
+  class GestaoDeFilas <<service>> {
+    -_uow: UnidadeDeTrabalho
+    --
+    +criar_fila(nome, descricao, quando): Fila
+    +listar_filas(apenas_abertas): list
+    +obter_fila(fila_id): Fila
+    +encerrar_fila(fila_id, quando): Fila
+    +reabrir_fila(fila_id, quando): Fila
+  }
+  class GerenciadorDeSenhas <<service>> {
+    -_uow: UnidadeDeTrabalho
+    --
+    +emitir_senha(...): Senha
+    +consultar_fila(fila_id): list
+    +consultar_senha(senha_id): Senha
+    +chamar_proxima_senha(...): Senha?
+    +iniciar_atendimento(senha_id): Senha
+    +finalizar_atendimento(senha_id): Senha
+  }
+  class Consultas <<service>> {
+    -_uow: UnidadeDeTrabalho
+    --
+    +historico(...): Pagina
+    +notificacoes(...): Pagina
+    +tentativas(...): Pagina
+  }
+  class ProcessadorOutbox <<service>> {
+    -_uow: UnidadeDeTrabalho
+    -_notificador: Notificador
+    --
+    +processar(limite): ResultadoProcessamento
+  }
+  interface UnidadeDeTrabalho <<Protocol>> {
+    +transacao(fila_id?): Transacao
+  }
+  interface Transacao <<Protocol>> {
+    +filas: RepositorioDeFilas
+    +senhas: RepositorioDeSenhas
+    +historico: RepositorioDeHistorico
+    +outbox: RepositorioDeOutbox
+    +notificacoes: RepositorioDeNotificacoes
+    --
+    +registrar_transicao(transicao)
+    +registrar_evento(evento)
+  }
+  interface RepositorioDeFilas <<Protocol>> {
+    +salvar(fila): Fila
+    +buscar(fila_id): Fila?
+    +listar(): list
+  }
+  interface RepositorioDeSenhas <<Protocol>> {
+    +salvar(senha): Senha
+    +buscar(senha_id): Senha?
+    +listar(fila_id): list
+    +proximo_numero(fila_id, dia, tipo): str
+  }
+  interface RepositorioDeHistorico <<Protocol>>
+  interface RepositorioDeOutbox <<Protocol>>
+  interface RepositorioDeNotificacoes <<Protocol>>
+  interface Notificador <<Protocol>> {
+    +notificar(evento: SenhaChamada)
+  }
+}
+
+package "Infraestrutura - adaptadores" #EDF2FF {
+  class UnidadeDeTrabalhoPostgres <<adapter>> {
+    +transacao(fila_id?): TransacaoPostgres
+  }
+  class UnidadeDeTrabalhoEmMemoria <<adapter>> {
+    +transacao(fila_id?): TransacaoEmMemoria
+  }
+  class FakeNotificador <<adapter>> {
+    +notificar(evento: SenhaChamada)
+  }
+}
+
+Fila "1" -- "0..*" Senha : agrupa por fila_id
+Senha "1" -- "0..*" TransicaoSenha : registra estados
+Senha "1" -- "0..1" SenhaChamada : origina
+MensagemOutbox "1" *-- "1" SenhaChamada : evento
+MensagemOutbox "1" o-- "0..*" TentativaNotificacao : tentativas
+MensagemOutbox "1" -- "0..1" NotificacaoSimulada : efeito simulado
+Fila ..> EstadoFila
+Senha ..> EstadoSenha
+Senha ..> TipoSenha
+
+GestaoDeFilas ..> Fila : manipula
+GerenciadorDeSenhas ..> Senha : manipula
+GerenciadorDeSenhas ..> Fila : coordena
+GerenciadorDeSenhas ..> SenhaChamada : registra
+Consultas ..> TransicaoSenha : consulta
+ProcessadorOutbox ..> MensagemOutbox : processa
+
+GestaoDeFilas ..> UnidadeDeTrabalho
+GerenciadorDeSenhas ..> UnidadeDeTrabalho
+Consultas ..> UnidadeDeTrabalho
+ProcessadorOutbox ..> UnidadeDeTrabalho
+ProcessadorOutbox ..> Notificador
+FakeNotificador ..|> Notificador
+UnidadeDeTrabalhoPostgres ..|> UnidadeDeTrabalho
+UnidadeDeTrabalhoEmMemoria ..|> UnidadeDeTrabalho
+UnidadeDeTrabalho ..> Transacao : abre
+Transacao --> RepositorioDeFilas
+Transacao --> RepositorioDeSenhas
+Transacao --> RepositorioDeHistorico
+Transacao --> RepositorioDeOutbox
+Transacao --> RepositorioDeNotificacoes
+
+note bottom of Senha
+  Atendimento nao e uma classe separada.
+  Inicio, fim e guiche sao dados da Senha.
+  Usuario/Atendente/Guiche sao IDs textuais.
+end note
+
+note bottom of UnidadeDeTrabalho
+  Protocol do Python: as implementacoes
+  satisfazem o contrato estruturalmente.
+end note
+
+note bottom of Fila
+  A associacao Fila-Senha e conceitual:
+  o codigo usa o identificador fila_id,
+  nao uma colecao de objetos na entidade Fila.
+end note
+@enduml

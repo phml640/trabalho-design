@@ -9,7 +9,6 @@ planejado. Diagramas UML são mantidos separadamente pelo integrante responsáve
 | Componente | Implementação e responsabilidade |
 | --- | --- |
 | Frontend React/Vite/TypeScript | `frontend/src`: visões `/usuario` e `/admin`, acompanhamento periódico, histórico e notificações. Não calcula a ordem de chamada. |
-| Servidor web Nginx | `frontend/nginx.conf`: serve o build, suporta acesso direto às rotas React e encaminha `/api/` para a API. |
 | API REST FastAPI | `gestao_filas.api`, `gestao_senhas.api` e `gestao_compartilhada.api`: validação, respostas tipadas, OpenAPI e tradução de erros para HTTP. Sem autenticação/autorização. |
 | Gestão de filas | `GestaoDeFilas`: criação, consulta, encerramento e reabertura. Coordena cancelamentos pela unidade de trabalho. |
 | Gestão de senhas e atendimentos | `GerenciadorDeSenhas`: emissão, consulta, chamada, início e finalização. Atendimento é parte da senha; não existe um serviço implantado separadamente para ele. |

@@ -7,7 +7,7 @@ planejado. Diagramas UML são mantidos separadamente pelo integrante responsáve
 ## Componentes implementados
 
 | Componente | Implementação e responsabilidade |
-| --- | --- |
+| --- |
 | Frontend React/Vite/TypeScript | `frontend/src`: visões `/usuario` e `/admin`, acompanhamento periódico, histórico e notificações. Não calcula a ordem de chamada. |
 | Servidor web Nginx | `frontend/nginx.conf`: serve o build, suporta acesso direto às rotas React e encaminha `/api/` para a API. |
 | API REST FastAPI | `gestao_filas.api`, `gestao_senhas.api` e `gestao_compartilhada.api`: validação, respostas tipadas, OpenAPI e tradução de erros para HTTP. Sem autenticação/autorização. |
@@ -16,11 +16,9 @@ planejado. Diagramas UML são mantidos separadamente pelo integrante responsáve
 | Domínio | `Fila`, `Senha`, `selecionar_proxima` e `SenhaChamada`: estados, transições e política de duas prioritárias consecutivas/FIFO. Não dependem de HTTP, ORM ou provedor. |
 | Virada diária | `gestao_compartilhada.operacoes.garantir_dia`: execução idempotente na operação pertinente. Não existe cron ou agendador. |
 | Histórico e consultas | `TransicaoSenha`, `Consultas` e repositórios: registro atômico de transições e consultas paginadas por fila/senha/estado. |
-| Porta transacional | `UnidadeDeTrabalho` e protocolos de repositórios em `gestao_compartilhada.application`: delimitam as operações de persistência necessárias aos casos de uso. |
+| Processador da Outbox | `ProcessadorOutbox`: reserva um evento em transação curta, fecha a reserva antes de invocar o notificador e registra sucesso/falha em outra transação. Execução manual pela API/interface. |
 | Persistência PostgreSQL | `gestao_compartilhada.postgres`: modelos e repositórios SQLAlchemy, Session por transação, bloqueio da fila e migrações Alembic. |
 | Adaptador em memória | `UnidadeDeTrabalhoEmMemoria`: snapshots, rollback e bloqueio global em um processo; utilizado nas regressões rápidas. Não oferece persistência entre reinícios. |
-| Processador da Outbox | `ProcessadorOutbox`: reserva um evento em transação curta, fecha a reserva antes de invocar o notificador e registra sucesso/falha em outra transação. Execução manual pela API/interface. |
-| Porta de notificação | `Notificador.notificar(evento)`: contrato substituível, com id estável como chave de idempotência. |
 | Notificador simulado | `FakeNotificador`: persiste uma mensagem única por evento, sem celular, SMS, WhatsApp ou contato real. Permite simular falha e inspecionar tentativas. |
 
 PostgreSQL, API e frontend têm containers próprios por necessidade de execução.
@@ -31,7 +29,15 @@ servidor web não torna a solução um conjunto de microsserviços.
 Essa é a organização configurada no código e nos Dockerfiles. Cada integrante
 deve verificar sua execução no ambiente local, conforme o [README](../README.md).
 
-### Conceitos e representações do domínio
+## Interfaces (portas e contratos)
+
+| Interface | Responsabilidade | Utilizada por | Implementada por |
+| --- | --- | --- |
+| `UnidadeDeTrabalho` | Delimita as operações de persistência necessárias aos casos de uso e coordena a transação local. | Gestão de filas, gestão de senhas e operações compartilhadas. | Adaptadores PostgreSQL e `UnidadeDeTrabalhoEmMemoria`. |
+| Protocolos de repositórios | Definem contratos de acesso aos dados utilizados pelos casos de uso. | Casos de uso e componentes de coordenação. | Repositórios PostgreSQL e implementação em memória. |
+| `Notificador.notificar(evento)` | Contrato substituível para solicitar a notificação de um evento, usando id estável como chave de idempotência. | `ProcessadorOutbox`. | `FakeNotificador`. |
+
+## Conceitos e representações do domínio
 
 | Conceito | Representação e responsabilidade |
 | --- | --- |
@@ -42,10 +48,21 @@ deve verificar sua execução no ambiente local, conforme o [README](../README.m
 | Evento de chamada | `SenhaChamada`: fato imutável, com ids de evento, fila e senha e horário. O acompanhamento de entrega está em `MensagemOutbox` e `TentativaNotificacao`. |
 | Usuário, atendente e guichê | Referências textuais na senha; não são entidades cadastradas e não possuem chaves estrangeiras para tabelas próprias. |
 
+## Relações e comunicação entre componentes
+
+- O frontend comunica-se com a API REST por HTTP; não acessa diretamente o banco.
+- O Nginx serve o frontend e encaminha `/api/` para a API.
+- A API REST traduz as requisições HTTP e coordena os casos de uso.
+- `GestaoDeFilas`, `GerenciadorDeSenhas`, `Consultas` e `ProcessadorOutbox` coordenam operações, utilizando o domínio e os contratos necessários.
+- Os casos de uso utilizam os protocolos de repositórios e a `UnidadeDeTrabalho`, sem SQL diretamente nas regras de negócio.
+- Os adaptadores de persistência implementam os contratos de repositórios e transação; a composição seleciona a implementação.
+- `ProcessadorOutbox` utiliza a interface `Notificador`; o `FakeNotificador` implementa o envio simulado.
+- A seleção e o atendimento de senhas, o histórico, os estados e os eventos necessários confirmam ou revertem juntos na transação local quando aplicável.
+
 ## Atores e funcionalidades fora do escopo
 
 | Elemento | Situação real |
-| --- | --- |
+| --- |
 | Usuário | Emite e acompanha uma senha pela visão de usuário, sem cadastro ou login. |
 | Atendente/administrador | Cria, encerra/reabre filas, chama e atende senhas e consulta registros na mesma visão administrativa. |
 | Guichês e atendentes | Identificadores informados na chamada; não possuem cadastro ou gestão de usuários. |
@@ -82,7 +99,7 @@ virar um depósito de responsabilidades sem relação.
 ## Responsabilidades e princípios GRASP/SOLID
 
 | Princípio | Aplicação concreta |
-| --- | --- |
+| --- |
 | GRASP Controller | `GestaoDeFilas`, `GerenciadorDeSenhas`, `Consultas` e `ProcessadorOutbox` coordenam casos de uso; rotas traduzem HTTP. |
 | GRASP Information Expert | `Senha` valida suas transições e horários; `Fila` controla seu estado e contador. A função pura `selecionar_proxima` aplica a política. |
 | GRASP Creator | O gerenciador cria a senha a partir do número fornecido pelo repositório e das informações da fila. |
